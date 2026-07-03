@@ -1,6 +1,7 @@
 import pygame
 import sys
 import random
+import math  # Added for hexagon vertex calculations
 
 from src.enemy_obj import enemy
 
@@ -92,6 +93,47 @@ for col, row in grid_path:
     pixel_path.append(pygame.math.Vector2(center_x, center_y))
 
 
+# --- HEXAGON DRAWING HELPER ---
+def draw_hexagon(surface, color, center, size, alpha=255):
+    """
+    Draws a hexagon. If alpha < 255, it uses a temporary 
+    transparent surface to create a faded look.
+    """
+    cx, cy = center
+    points = []
+    for i in range(6):
+        angle_rad = math.radians(60 * i)
+        x = cx + size * math.cos(angle_rad)
+        y = cy + size * math.sin(angle_rad)
+        points.append((x, y))
+
+    if alpha < 255:
+        # Create a transparent bounding box for drawing
+        temp_surface = pygame.Surface((size * 2 + 2, size * 2 + 2), pygame.SRCALPHA)
+        # Shift points to fit localized surface space
+        temp_points = [(p[0] - cx + size + 1, p[1] - cy + size + 1) for p in points]
+        pygame.draw.polygon(temp_surface, color + (alpha,), temp_points)
+        surface.blit(temp_surface, (cx - size - 1, cy - size - 1))
+    else:
+        pygame.draw.polygon(surface, color, points)
+
+
+class turret:
+    def __init__(self, x_position, y_position, cooldown=1.0, direction=0):
+        self.x_position = x_position
+        self.y_position = y_position
+        self.cooldown = cooldown
+        self.direction = direction
+        self.have_place = False
+
+    def placing(self):
+        self.have_place = True
+
+    def draw(self, surface):
+        # Draws a solid (non-faded) cyan hexagon
+        draw_hexagon(surface, (0, 255, 255), (self.x_position, self.y_position), 20)
+
+
 pygame.init()
 
 SCREEN_WIDTH = 1600
@@ -104,6 +146,10 @@ enemies: list[enemy] = []
 spawn_timer = 0.0
 spawn_cooldown = 1.0  # Spawn an enemy every 1.0 second
 
+# Turret manager variables
+placed_turrets = []
+placing_hexagon = False  # Track if preview mode is active
+
 clock = pygame.time.Clock()
 running = True
 
@@ -114,6 +160,33 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        
+        elif event.type == pygame.KEYDOWN:
+            # Enable hexagon placement preview
+            if event.key == pygame.K_1:
+                placing_hexagon = True
+            
+            # Place the hexagon on the grid
+            elif event.key == pygame.K_SPACE:
+                if placing_hexagon:
+                    mx, my = pygame.mouse.get_pos()
+                    grid_x = mx // 50
+                    grid_y = my // 50
+                    
+                    # Ensure position is inside bounds and not on the pathway (map value 0)
+                    if 0 <= grid_x < 32 and 0 <= grid_y < 18:
+                        if map[grid_y][grid_x] == 0:
+                            center_x = grid_x * 50 + 25
+                            center_y = grid_y * 50 + 25
+                            
+                            # Ensure we don't place multiple turrets on the exact same tile
+                            already_occupied = any(t.x_position == center_x and t.y_position == center_y for t in placed_turrets)
+                            
+                            if not already_occupied:
+                                new_turret = turret(center_x, center_y)
+                                new_turret.placing()
+                                placed_turrets.append(new_turret)
+                                placing_hexagon = False  # Close placement mode after placing
 
     # Spawn timing
     spawn_timer += dt
@@ -129,6 +202,22 @@ while running:
         for delta_x in range(len(map[0])):
             if map[delta_y][delta_x] == 1:
                 pygame.draw.rect(screen, path_color, (delta_x * 50, delta_y * 50, 50, 50))
+
+    # Render Placed Turrets
+    for t in placed_turrets:
+        t.draw(screen)
+
+    # Render Snap-to-Grid Faded Preview
+    if placing_hexagon:
+        mx, my = pygame.mouse.get_pos()
+        grid_x = mx // 50
+        grid_y = my // 50
+        if 0 <= grid_x < 32 and 0 <= grid_y < 18:
+            snap_x = grid_x * 50 + 25
+            snap_y = grid_y * 50 + 25
+            
+            # Draws a faded cyan preview (alpha value 100 out of 255)
+            draw_hexagon(screen, (0, 255, 255), (snap_x, snap_y), 20, alpha=100)
 
     # Update & Draw active enemies
     for e in enemies:
