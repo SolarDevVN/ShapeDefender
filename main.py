@@ -3,10 +3,10 @@ import sys
 import random
 
 from src.enemy_obj import enemy
-from src.turret_obj import turret, draw_shape  # Imported generic draw_shape helper
+from src.turret_obj import turret, draw_shape
 
 # --- SCREEN SCALE SETTINGS ---
-TILE_SIZE = 50  
+TILE_SIZE = 40 
 COLS = 32                    
 ROWS = 18
 
@@ -92,19 +92,13 @@ pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("ShapeDefender")
 
-# Load image after setting display mode to avoid startup crashes
-try:
-    circle_img = pygame.image.load("assets/Circle Tank.png")
-except pygame.error:
-    print("Warning: Could not load assets/Circle Tank.png")
-
 enemies: list[enemy] = []
 spawn_timer = 0.0
 spawn_cooldown = 1.0
 
 placed_turrets = []
-placing_mode = False          # Track if preview mode is active
-selected_shape = "hexagon"    # Store currently chosen turret type
+placing_mode = False          
+selected_shape = "hexagon"    
 
 clock = pygame.time.Clock()
 running = True
@@ -120,7 +114,6 @@ while running:
             if event.key == pygame.K_ESCAPE:
                 running = False
             
-            # Use keys 1-4 to change preview shapes
             elif event.key == pygame.K_1:
                 placing_mode = True
                 selected_shape = "hexagon"
@@ -145,17 +138,13 @@ while running:
                             center_x = grid_x * TILE_SIZE + half_tile
                             center_y = grid_y * TILE_SIZE + half_tile
                             
-                            # Mark the map coordinate as occupied
                             map[grid_y][grid_x] = 3
                             
-                            # Create a turret passing in the selected shape type
                             new_turret = turret(center_x, center_y, shape_type=selected_shape)
                             
-                            # If your turret class requires a .placing() call, execute it
                             if hasattr(new_turret, 'placing'):
-                                new_turret.placing()
+                                new_turret.placing(HEX_SIZE)
                                 
-                            # Append the newly created turret to our active list
                             placed_turrets.append(new_turret)
                             placing_mode = False
 
@@ -165,6 +154,14 @@ while running:
         enemies.append(new_enemy)
         spawn_timer = 0.0
 
+    for current_enemy in enemies[:]: # Dấu [:] giúp tạo bản sao để xóa phần tử an toàn không bị lỗi vòng lặp
+        if hasattr(current_enemy, 'move'):
+            # Gọi hàm move và kiểm tra xem enemy đã đi hết đường chưa (trả về False)
+            van_dang_di_chuyen = current_enemy.move(delta_time)
+            
+            if not van_dang_di_chuyen:
+                enemies.remove(current_enemy) # Xóa kẻ địch khỏi danh sách game khi đi hết đường
+
     screen.fill((0, 0, 0))
 
     # Render matrix map tiles
@@ -173,9 +170,21 @@ while running:
             if map[row_index][column_index] == 1:
                 pygame.draw.rect(screen, path_color, (column_index * TILE_SIZE, row_index * TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
-    # Render Placed Turrets
+    # Render Placed Turrets & Handle target locking rotation
     for current_turret in placed_turrets:
+        enemies_in_range = current_turret.construct_enemy_list(enemies)
+        
+        if len(enemies_in_range) > 0:
+            # FIX: Lấy phần tử [0] chuẩn xác không bị mất ký tự nữa
+            target = enemies_in_range[0]
+            current_turret.point_toward(target.x_position, target.y_position)
+        
+            
         current_turret.draw(screen, HEX_SIZE)
+
+    for current_enemy in enemies:
+        if hasattr(current_enemy, 'draw'):
+            current_enemy.draw(screen)
 
     # Render Snap-to-Grid Faded Preview
     if placing_mode:
@@ -186,15 +195,7 @@ while running:
             snap_x = grid_x * TILE_SIZE + half_tile
             snap_y = grid_y * TILE_SIZE + half_tile
             
-            # Draws a faded preview of whichever shape is selected
             draw_shape(screen, selected_shape, (0, 255, 255), (snap_x, snap_y), HEX_SIZE, alpha=100)
-
-    # Update & Draw active enemies
-    for active_enemy in enemies:
-        active_enemy.move(delta_time)
-        active_enemy.draw(screen)
-
-    enemies = [active_enemy for active_enemy in enemies if active_enemy.waypoint_index < len(pixel_path)]
 
     pygame.display.flip()
 
