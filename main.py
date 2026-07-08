@@ -4,9 +4,10 @@ import random
 
 from src.enemy_obj import enemy
 from src.turret_obj import turret, draw_shape
+from src.type import ShapeTurret, Settings
 
 # --- SCREEN SCALE SETTINGS ---
-TILE_SIZE = 40 
+TILE_SIZE = Settings.tile_size
 COLS = 32                    
 ROWS = 18
 
@@ -96,7 +97,7 @@ enemies: list[enemy] = []
 spawn_timer = 0.0
 spawn_cooldown = 1.0
 
-placed_turrets = []
+placed_turrets: list[turret] = []
 placing_mode = False          
 selected_shape = "hexagon"    
 
@@ -116,16 +117,16 @@ while running:
             
             elif event.key == pygame.K_1:
                 placing_mode = True
-                selected_shape = "hexagon"
+                selected_shape = ShapeTurret.hexagon
             elif event.key == pygame.K_2:
                 placing_mode = True
-                selected_shape = "square"
+                selected_shape = ShapeTurret.square
             elif event.key == pygame.K_3:
                 placing_mode = True
-                selected_shape = "circle"
+                selected_shape = ShapeTurret.circle
             elif event.key == pygame.K_4:
                 placing_mode = True
-                selected_shape = "triangle"
+                selected_shape = ShapeTurret.triangle
                 
             elif event.key == pygame.K_SPACE:
                 if placing_mode:
@@ -172,7 +173,7 @@ while running:
 
     # Render Placed Turrets & Handle target locking rotation
     for current_turret in placed_turrets:
-        enemies_in_range = current_turret.construct_enemy_list(enemies)
+        enemies_in_range: list[enemy] = current_turret.construct_enemy_list(enemies)
         
         if len(enemies_in_range) > 0:
             # FIX: Lấy phần tử [0] chuẩn xác không bị mất ký tự nữa

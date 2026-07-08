@@ -3,6 +3,12 @@
 import pygame
 import math
 
+from src.type import ShapeTurret, Settings
+from src.enemy_obj import enemy
+
+_image_cache = {}
+
+
 def draw_shape(surface, shape_type, color, center, size, alpha=255):
     """
     Draws a colored shape (hexagon, circle, square, or triangle).
@@ -10,47 +16,87 @@ def draw_shape(surface, shape_type, color, center, size, alpha=255):
     """
     center_x, center_y = center
     
-    # Create temporary surface with transparency support
-    temp_surface = pygame.Surface((size * 2 + 2, size * 2 + 2), pygame.SRCALPHA)
-    local_center = (size + 1, size + 1)
-    
-    if shape_type == "hexagon":
-        points = []
-        for vertex_index in range(6):
-            angle_rad = math.radians(60 * vertex_index)
-            vertex_x = local_center[0] + size * math.cos(angle_rad)
-            vertex_y = local_center[1] + size * math.sin(angle_rad)
-            points.append((vertex_x, vertex_y))
-        pygame.draw.polygon(temp_surface, color + (alpha,), points)
+    if shape_type == ShapeTurret.circle:
+        img_key = f"circle_{size}"
+        if img_key in _image_cache:
+            img, circle_center_x, circle_center_y = _image_cache[img_key]
+        else:
+            try:
+                if "raw_circle" not in _image_cache:
+                    _image_cache["raw_circle"] = pygame.image.load("assets/Default.png").convert_alpha()
+                
+                raw_img = _image_cache["raw_circle"]
+                orig_w, orig_h = raw_img.get_size()
+                
+                # Find the exact circle center using get_bounding_rects()
+                mask = pygame.mask.from_surface(raw_img)
+                rects = mask.get_bounding_rects()
+                bbox = rects[0] if rects else pygame.Rect(0, 0, orig_w, orig_h)
+                orig_circle_diameter = bbox.height
+                orig_center_x = bbox.x + orig_circle_diameter / 2
+                orig_center_y = bbox.y + orig_circle_diameter / 2
+                
+                # Scale keeping the original aspect ratio
+                scale_factor = (size * 2) / orig_circle_diameter
+                new_w = int(orig_w * scale_factor)
+                new_h = int(orig_h * scale_factor)
+                
+                img = pygame.transform.scale(raw_img, (new_w, new_h))
+                
+                circle_center_x = int(orig_center_x * scale_factor)
+                circle_center_y = int(orig_center_y * scale_factor)
+                
+                _image_cache[img_key] = (img, circle_center_x, circle_center_y)
+            except pygame.error:
+                img = None
         
-    elif shape_type == "circle":
-        try:
-            img = pygame.image.load("assets/Circle Tank.png").convert_alpha()
-            img = pygame.transform.scale(img, (size * 2, size * 2))
-            img_rect = img.get_rect(center=local_center)
-            temp_surface.blit(img, img_rect.topleft)
-        except pygame.error:
+        if img is not None:
+            if alpha < 255:
+                img_to_draw = img.copy()
+                img_to_draw.set_alpha(alpha)
+            else:
+                img_to_draw = img
+                
+            surface.blit(img_to_draw, (center_x - circle_center_x, center_y - circle_center_y))
+        else:
             # Fallback nếu không tìm thấy file ảnh thì vẽ hình tròn tạm thời
+            temp_surface = pygame.Surface((size * 2 + 2, size * 2 + 2), pygame.SRCALPHA)
+            local_center = (size + 1, size + 1)
             pygame.draw.circle(temp_surface, color + (alpha,), local_center, size)
+            surface.blit(temp_surface, (center_x - size - 1, center_y - size - 1))
         
-    elif shape_type == "square":
-        # Draw a centered square
-        pygame.draw.rect(
-            temp_surface, 
-            color + (alpha,), 
-            (local_center[0] - size, local_center[1] - size, size * 2, size * 2)
-        )
+    else:
+        # Create temporary surface with transparency support
+        temp_surface = pygame.Surface((size * 2 + 2, size * 2 + 2), pygame.SRCALPHA)
+        local_center = (size + 1, size + 1)
         
-    elif shape_type == "triangle":
-        # Draw an upward-pointing triangle
-        points = [
-            (local_center[0], local_center[1] - size),
-            (local_center[0] - size, local_center[1] + size),
-            (local_center[0] + size, local_center[1] + size)
-        ]
-        pygame.draw.polygon(temp_surface, color + (alpha,), points)
-        
-    surface.blit(temp_surface, (center_x - size - 1, center_y - size - 1))
+        if shape_type == ShapeTurret.hexagon:
+            points = []
+            for vertex_index in range(6):
+                angle_rad = math.radians(60 * vertex_index)
+                vertex_x = local_center[0] + size * math.cos(angle_rad)
+                vertex_y = local_center[1] + size * math.sin(angle_rad)
+                points.append((vertex_x, vertex_y))
+            pygame.draw.polygon(temp_surface, color + (alpha,), points)
+            
+        elif shape_type == ShapeTurret.square:
+            # Draw a centered square
+            pygame.draw.rect(
+                temp_surface, 
+                color + (alpha,), 
+                (local_center[0] - size, local_center[1] - size, size * 2, size * 2)
+            )
+            
+        elif shape_type == ShapeTurret.triangle:
+            # Draw an upward-pointing triangle
+            points = [
+                (local_center[0], local_center[1] - size),
+                (local_center[0] - size, local_center[1] + size),
+                (local_center[0] + size, local_center[1] + size)
+            ]
+            pygame.draw.polygon(temp_surface, color + (alpha,), points)
+            
+        surface.blit(temp_surface, (center_x - size - 1, center_y - size - 1))
 
 
 class turret:
@@ -69,7 +115,34 @@ class turret:
         self.have_place = True
         
         # Tạo bề mặt canvas lớn gấp đôi kích thước tháp để khi xoay góc không bị mất cạnh
-        canvas_size = (size * 2 + 2) * 2
+        if self.shape_type == ShapeTurret.circle:
+            try:
+                if "raw_circle" not in _image_cache:
+                    _image_cache["raw_circle"] = pygame.image.load("assets/Circle Tank.png").convert_alpha()
+                
+                raw_img = _image_cache["raw_circle"]
+                orig_w, orig_h = raw_img.get_size()
+                
+                # Find exact boundaries of the circle within the original canvas
+                mask = pygame.mask.from_surface(raw_img)
+                rects = mask.get_bounding_rects()
+                bbox = rects[0] if rects else pygame.Rect(0, 0, orig_w, orig_h)
+                orig_circle_diameter = bbox.height
+                orig_center_x = bbox.x + orig_circle_diameter / 2
+                
+                scale_factor = (size * 2) / orig_circle_diameter
+                new_w = int(orig_w * scale_factor)
+                
+                scaled_center_x = int(orig_center_x * scale_factor)
+                dx = new_w - scaled_center_x
+                dy = size
+                max_dist = math.hypot(dx, dy)
+                canvas_size = int(max_dist * 2) + 4
+            except pygame.error:
+                canvas_size = (size * 2 + 2) * 2
+        else:
+            canvas_size = (size * 2 + 2) * 2
+            
         self.original_image = pygame.Surface((canvas_size, canvas_size), pygame.SRCALPHA)
         
         # Vẽ tháp vào chính giữa canvas trống này
@@ -89,13 +162,13 @@ class turret:
             if self.original_image is None:
                 self.placing(size)
             
-            # Vẽ bức ảnh ĐÃ XOAY (self.image) ra màn hình chính
+            # Vẽ bức ảnh Đã XOAY (self.image) ra màn hình chính
             surface.blit(self.image, self.rect.topleft)
 
-    def construct_enemy_list(self, enemies):
+    def construct_enemy_list(self, enemies: list[enemy]) -> list[enemy]:
         enemy_in_range = []
         for enemy in enemies:
-            if abs(enemy.x_position - self.x_position) < 100 and abs(enemy.y_position - self.y_position) < 100:
+            if abs(enemy.x_position - self.x_position) < Settings.tile_size * 2 and abs(enemy.y_position - self.y_position) < Settings.tile_size * 2:
                 enemy_in_range.append(enemy)
         return enemy_in_range
         
@@ -103,15 +176,11 @@ class turret:
         delta_x = target_x - self.x_position
         delta_y = target_y - self.y_position
         
-        # Tính góc toán học bằng radian
-        goc_radian = math.atan2(delta_y, delta_x)
+        radian_value = math.atan2(delta_y, delta_x)
         
-        # Đổi sang độ và thêm dấu âm (-) để khớp với hệ tọa độ Pygame
-        self.direction = -math.degrees(goc_radian)
+        self.direction = -math.degrees(radian_value)
         
-        # Tiến hành xoay ảnh dựa trên hướng góc mới tính được
         if self.have_place and self.original_image is not None:
             current_center = self.rect.center
             self.image = pygame.transform.rotozoom(self.original_image, self.direction, 1)
             self.rect = self.image.get_rect(center=current_center)
-       
