@@ -168,7 +168,7 @@ class turret:
     def construct_enemy_list(self, enemies: list[enemy]) -> list[enemy]:
         enemy_in_range = []
         for enemy in enemies:
-            if abs(enemy.x_position - self.x_position) < Settings.tile_size * 2 and abs(enemy.y_position - self.y_position) < Settings.tile_size * 2:
+            if abs(enemy.x_position - self.x_position) < Settings.tile_size * 3 and abs(enemy.y_position - self.y_position) < Settings.tile_size * 3:
                 enemy_in_range.append(enemy)
         return enemy_in_range
         
@@ -184,3 +184,39 @@ class turret:
             current_center = self.rect.center
             self.image = pygame.transform.rotozoom(self.original_image, self.direction, 1)
             self.rect = self.image.get_rect(center=current_center)
+
+    def predict_target_position(self, target_enemy, bullet_speed):
+        current_pos = pygame.math.Vector2(target_enemy.x_position, target_enemy.y_position)
+        
+        if target_enemy.waypoint_index >= len(target_enemy.path):
+            dx = target_enemy.x_position - self.x_position
+            dy = target_enemy.y_position - self.y_position
+            return -math.degrees(math.atan2(dy, dx))
+            
+        target_wp = target_enemy.path[target_enemy.waypoint_index]
+        direction = target_wp - current_pos
+        
+        if direction.length() > 0:
+            direction = direction.normalize()
+        else:
+            direction = pygame.math.Vector2(0, 0)
+            
+        enemy_vx = direction.x * target_enemy.speed
+        enemy_vy = direction.y * target_enemy.speed
+
+        # Calculate standard distance
+        dist_to_enemy = math.hypot(target_enemy.x_position - self.x_position, target_enemy.y_position - self.y_position)
+        
+        # Multiply travel time by 1.25 to overshoot slightly and hit "in the face"
+        lead_multiplier = 1.05
+        travel_time = (dist_to_enemy / bullet_speed) * lead_multiplier if bullet_speed > 0 else 0
+
+        # Predict future position with extra lead
+        predicted_x = target_enemy.x_position + enemy_vx * travel_time
+        predicted_y = target_enemy.y_position + enemy_vy * travel_time
+
+        dx = predicted_x - self.x_position
+        dy = predicted_y - self.y_position
+        angle_rad = math.atan2(dy, dx)
+        
+        return -math.degrees(angle_rad)

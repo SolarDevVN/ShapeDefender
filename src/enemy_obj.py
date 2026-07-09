@@ -1,16 +1,20 @@
+# src/enemy_obj.py
 import pygame
 
-
 class enemy:
-    def __init__(self, speed, damage, path_waypoints: list[pygame.math.Vector2]):
+    # Added 'hp' with a default value of 100 to the initializer parameters
+    def __init__(self, speed, damage, path_waypoints: list[pygame.math.Vector2], hp=100):
         self.speed = speed
         self.damage = damage
         self.path = path_waypoints
         self.waypoint_index = 0
         
-        # Start at the first discovered waypoint
         self.x_position = self.path[0].x
         self.y_position = self.path[0].y
+        
+        # Requirement 3: Add hp and max_hp
+        self.max_hp = hp
+        self.hp = hp
 
     def move(self, dt):
         if self.waypoint_index >= len(self.path):
