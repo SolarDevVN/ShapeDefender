@@ -110,6 +110,7 @@ class turret:
         self.original_image = None
         self.rect = None
         self.image = None # Chứa ảnh thực tế sau khi xoay
+        self.cooldown_timer = 0.0
 
     def placing(self, size):
         self.have_place = True

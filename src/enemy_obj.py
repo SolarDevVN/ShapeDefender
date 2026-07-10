@@ -8,11 +8,8 @@ class enemy:
         self.damage = damage
         self.path = path_waypoints
         self.waypoint_index = 0
-        
         self.x_position = self.path[0].x
         self.y_position = self.path[0].y
-        
-        # Requirement 3: Add hp and max_hp
         self.max_hp = hp
         self.hp = hp
 
