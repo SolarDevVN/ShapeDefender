@@ -1,3 +1,5 @@
+# src/main.py
+
 import pygame
 import sys
 import random
@@ -5,8 +7,9 @@ import math
 
 from src.enemy_obj import enemy
 from src.turret_obj import turret, draw_shape
+from src.farm_obj import farm  # Import our new farm class
 from src.type import ShapeTurret, Settings
-from src.turret_attack_obj import bullet  # Import our new bullet class
+from src.turret_attack_obj import bullet  # Import our bullet class
 
 # --- SCREEN SCALE SETTINGS ---
 TILE_SIZE = Settings.tile_size
@@ -38,6 +41,29 @@ map = [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 ]
+
+enemy_types = {
+    "circle": {"speed": 250, "damage": 10, "hp": 100},
+    "square": {"speed": 200, "damage": 15, "hp": 150},
+    "triangle": {"speed": 300, "damage": 5, "hp": 75},
+    "pentagon": {"speed": 100, "damage": 25, "hp": 250},
+    "hexagon": {"speed": 75, "damage": 30, "hp": 500}
+}
+
+# Explicit pricing list for farms and turrets (Requirement added)
+TURRET_PRICES = {
+    ShapeTurret.circle: 20,
+    ShapeTurret.square: 40,
+    ShapeTurret.triangle: 60,
+    ShapeTurret.hexagon: 100,
+    ShapeTurret.farm_t1: 50,
+    ShapeTurret.farm_t2: 100
+}
+
+def enemy_randomizer():
+    enemy_type = random.choice(list(enemy_types.keys()))
+    attributes = enemy_types[enemy_type]
+    return attributes["speed"], attributes["damage"], attributes["hp"], enemy_type
 
 def generate_path_from_map(grid_map):
     rows = len(grid_map)
@@ -91,18 +117,24 @@ for column_index, row_index in grid_path:
 
 # --- PYGAME INITIALIZATION ---
 pygame.init()
+pygame.font.init()
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("ShapeDefender")
+ui_font = pygame.font.SysFont("Arial", 24)
 
 enemies: list[enemy] = []
 bullets: list[bullet] = []  # List to track active projectiles (Requirement 4)
 spawn_timer = 0.0
-spawn_cooldown = 0.1
+spawn_cooldown = 0.5  # Slightly adjusted to balance the spawn rate
 
 placed_turrets: list[turret] = []
+placed_farms: list[farm] = []  # List to track active income farms (Requirement added)
 placing_mode = False          
 selected_shape = "hexagon"    
+
+# Starting money bank set to exactly 200 (Requirement added)
+money = 200
 
 clock = pygame.time.Clock()
 running = True
@@ -118,6 +150,7 @@ while running:
             if event.key == pygame.K_ESCAPE:
                 running = False
             
+            # Key bindings for selecting placeable assets
             elif event.key == pygame.K_1:
                 placing_mode = True
                 selected_shape = ShapeTurret.hexagon
@@ -130,6 +163,12 @@ while running:
             elif event.key == pygame.K_4:
                 placing_mode = True
                 selected_shape = ShapeTurret.triangle
+            elif event.key == pygame.K_5:
+                placing_mode = True
+                selected_shape = ShapeTurret.farm_t1
+            elif event.key == pygame.K_6:
+                placing_mode = True
+                selected_shape = ShapeTurret.farm_t2
                 
             elif event.key == pygame.K_SPACE:
                 if placing_mode:
@@ -139,39 +178,40 @@ while running:
                     
                     if 0 <= grid_x < COLS and 0 <= grid_y < ROWS:
                         if map[grid_y][grid_x] == 0:
-                            center_x = grid_x * TILE_SIZE + half_tile
-                            center_y = grid_y * TILE_SIZE + half_tile
-                            
-                            map[grid_y][grid_x] = 3
-                            
-                            new_turret = turret(center_x, center_y, shape_type=selected_shape)
-                            
-                            # Give placed turrets a cooldown timer
-                            new_turret.cooldown_timer = 0.0
-                            
-                            
-                            new_turret.placing(HEX_SIZE)
+                            # Purchasing constraints (Requirement added)
+                            cost = TURRET_PRICES[selected_shape]
+                            if money >= cost:
+                                money -= cost
+                                center_x = grid_x * TILE_SIZE + half_tile
+                                center_y = grid_y * TILE_SIZE + half_tile
                                 
-                            placed_turrets.append(new_turret)
-                            placing_mode = False
+                                map[grid_y][grid_x] = 3
+                                
+                                # Decide if we should place a farm or a combat turret
+                                if selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]:
+                                    new_farm = farm(center_x, center_y, selected_shape)
+                                    placed_farms.append(new_farm)
+                                else:
+                                    new_turret = turret(center_x, center_y, shape_type=selected_shape)
+                                    new_turret.cooldown_timer = 0.0
+                                    new_turret.placing(HEX_SIZE)
+                                    placed_turrets.append(new_turret)
+                                    
+                                placing_mode = False
 
     # Spawn enemies
     spawn_timer += delta_time
     if spawn_timer >= spawn_cooldown and len(enemies) < 10000:
-        new_enemy = enemy(random.randint(150, 300), 10, pixel_path, hp=100)
-        
-        # new_enemy.max_hp = 100
-        # new_enemy.hp = 100
+        speed, damage, hp, spawning_type = enemy_randomizer()
+        new_enemy = enemy(speed, damage, pixel_path, select_type=spawning_type, hp=hp)
         enemies.append(new_enemy)
         spawn_timer = 0.0
 
-    # Move enemies & remove if dead or path is finished (Requirement 4)
+    # Move enemies & remove if path is finished (Requirement 4)
     for current_enemy in enemies[:]:
-            van_dang_di_chuyen = current_enemy.move(delta_time)
-            
-            # Remove enemy if path is finished OR if current HP drops to 0 (Requirement 4)
-            if not van_dang_di_chuyen:
-                enemies.remove(current_enemy)
+        van_dang_di_chuyen = current_enemy.move(delta_time)
+        if not van_dang_di_chuyen:
+            enemies.remove(current_enemy)
 
     # Move bullets & process collisions (Requirement 4)
     for current_bullet in bullets[:]:
@@ -190,6 +230,7 @@ while running:
                 if current_bullet in bullets:
                     bullets.remove(current_bullet)
                 if current_enemy.hp <= 0:
+                    # Enemy bounty reward has been removed (Requirement updated)
                     enemies.remove(current_enemy)
                 break
 
@@ -201,19 +242,23 @@ while running:
             if map[row_index][column_index] == 1:
                 pygame.draw.rect(screen, path_color, (column_index * TILE_SIZE, row_index * TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
-    # Render Placed Turrets & Handle target locking rotation with prediction
+    # Update and draw placed Farms (Requirement added)
+    for current_farm in placed_farms:
+        income = current_farm.update(delta_time)
+        money += income
+        current_farm.draw(screen)
+
+    # Render Placed Turrets & Handle targeting
     for current_turret in placed_turrets:
-        
-            
         # Count down cooldown timer using delta_time (Requirement 2)
         if current_turret.cooldown_timer > 0:
             current_turret.cooldown_timer -= delta_time
 
+        # If turret is ready to shoot, look for a target
         if current_turret.cooldown_timer <= 0:
             enemies_in_range: list[enemy] = current_turret.construct_enemy_list(enemies)
 
             if len(enemies_in_range) > 0:
-                  
                 target = enemies_in_range[0]
                 
                 # Predict targeting angle based on enemy speed and position (Requirement 1 & 2)
@@ -226,9 +271,8 @@ while running:
                     current_turret.image = pygame.transform.rotozoom(current_turret.original_image, predicted_angle, 1)
                     current_turret.rect = current_turret.image.get_rect(center=current_center)
                 
-                # Shooting mechanics (Requirement 2)
-                new_bullet = bullet(current_turret.x_position, current_turret.y_position, predicted_angle, speed=400, damage=25)
-                bullets.append(new_bullet)
+                # Trigger the unique firing pattern (Requirement 2 updated)
+                current_turret.shoot(bullets, predicted_angle)
                 current_turret.cooldown_timer = current_turret.cooldown
         
         current_turret.draw(screen, HEX_SIZE)
@@ -260,6 +304,17 @@ while running:
             snap_y = grid_y * TILE_SIZE + half_tile
             
             draw_shape(screen, selected_shape, (0, 255, 255), (snap_x, snap_y), HEX_SIZE, alpha=100)
+
+    # --- RENDER ON-SCREEN UI COUNTER (Requirement added) ---
+    money_label = ui_font.render(f"Money: ${int(money)}", True, (255, 215, 0))
+    screen.blit(money_label, (10, 10))
+    
+    if placing_mode:
+        # Display the price of the active placement preview
+        price = TURRET_PRICES[selected_shape]
+        color = (0, 255, 0) if money >= price else (255, 50, 50)
+        cost_label = ui_font.render(f"Cost: ${price} (Place with SPACE)", True, color)
+        screen.blit(cost_label, (10, 40))
 
     pygame.display.flip()
 
