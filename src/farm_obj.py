@@ -10,8 +10,8 @@ class farm:
         self.shape_type = shape_type
         self.money_timer = 0.0
         
-        # Determine income generation rate per second
-        self.generation_rate = 1 if shape_type == ShapeTurret.farm_t1 else 2
+        # Increased farm earning rate (Requirement updated)
+        self.generation_rate = 3 if shape_type == ShapeTurret.farm_t1 else 7
         
         # Set farm visual boundaries
         self.size = 16  # Matches HEX_SIZE (0.4 * TILE_SIZE)

@@ -42,23 +42,27 @@ map = [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 ]
 
+# Configured custom bounty money drops per enemy shape type (Requirement updated)
 enemy_types = {
-    "circle": {"speed": 250, "damage": 10, "hp": 100},
-    "square": {"speed": 200, "damage": 15, "hp": 150},
-    "triangle": {"speed": 300, "damage": 5, "hp": 75},
-    "pentagon": {"speed": 100, "damage": 25, "hp": 250},
-    "hexagon": {"speed": 75, "damage": 30, "hp": 500}
+    "circle": {"speed": 130, "damage": 10, "hp": 100, "bounty": 10},
+    "square": {"speed": 100, "damage": 15, "hp": 150, "bounty": 15},
+    "triangle": {"speed": 160, "damage": 5, "hp": 75, "bounty": 20},
+    "pentagon": {"speed": 60, "damage": 25, "hp": 250, "bounty": 35},
+    "hexagon": {"speed": 40, "damage": 30, "hp": 500, "bounty": 60}
 }
 
-# Explicit pricing list for farms and turrets (Requirement added)
+# Raised buying prices for all turrets and farms
 TURRET_PRICES = {
-    ShapeTurret.circle: 20,
-    ShapeTurret.square: 40,
-    ShapeTurret.triangle: 60,
-    ShapeTurret.hexagon: 100,
-    ShapeTurret.farm_t1: 50,
-    ShapeTurret.farm_t2: 100
+    ShapeTurret.circle: 50,
+    ShapeTurret.square: 100,
+    ShapeTurret.triangle: 250,
+    ShapeTurret.hexagon: 500,
+    ShapeTurret.farm_t1: 100,
+    ShapeTurret.farm_t2: 250
 }
+
+# Maximum active farm cap increased to 20
+MAX_FARMS = 20
 
 def enemy_randomizer():
     enemy_type = random.choice(list(enemy_types.keys()))
@@ -126,21 +130,49 @@ ui_font = pygame.font.SysFont("Arial", 24)
 enemies: list[enemy] = []
 bullets: list[bullet] = []  # List to track active projectiles (Requirement 4)
 spawn_timer = 0.0
-spawn_cooldown = 0.5  # Slightly adjusted to balance the spawn rate
+spawn_cooldown = 0.5
 
 placed_turrets: list[turret] = []
-placed_farms: list[farm] = []  # List to track active income farms (Requirement added)
+placed_farms: list[farm] = []  # List to track active income farms
 placing_mode = False          
 selected_shape = "hexagon"    
 
-# Starting money bank set to exactly 200 (Requirement added)
+# Starting money bank set to 200
 money = 200
+
+# Base Fortress HP
+fortress_hp = 100
+
+# Wave system state variables
+current_wave = 1
+enemies_spawned_this_wave = 0
+wave_size = 5               # Spawn count starts at 5
+wave_state = "spawning"     # Can be: "spawning", "clearing", "intermission"
+wave_timer = 0.0
 
 clock = pygame.time.Clock()
 running = True
 
 while running:
     delta_time = clock.tick(60) / 1000.0
+
+    # --- GAME OVER STATE HANDLER ---
+    if fortress_hp <= 0:
+        screen.fill((20, 20, 20))
+        game_over_label = ui_font.render("GAME OVER - The Fortress has Fallen!", True, (255, 50, 50))
+        exit_label = ui_font.render("Press any key to exit.", True, (150, 150, 150))
+        screen.blit(game_over_label, (SCREEN_WIDTH // 2 - 200, SCREEN_HEIGHT // 2 - 20))
+        screen.blit(exit_label, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20))
+        pygame.display.flip()
+        
+        # Halt execution, wait for key input to cleanly terminate
+        waiting_for_exit = True
+        while waiting_for_exit:
+            for event in pygame.event.get():
+                if event.type in [pygame.QUIT, pygame.KEYDOWN]:
+                    pygame.quit()
+                    sys.exit()
+        continue
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -170,6 +202,22 @@ while running:
                 placing_mode = True
                 selected_shape = ShapeTurret.farm_t2
                 
+            # Press '0' key to delete/sell turret or farm on mouse hover
+            elif event.key == pygame.K_0:
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                grid_x = mouse_x // TILE_SIZE
+                grid_y = mouse_y // TILE_SIZE
+                
+                if 0 <= grid_x < COLS and 0 <= grid_y < ROWS:
+                    if map[grid_y][grid_x] == 3:
+                        map[grid_y][grid_x] = 0  # Revert grid tile back to empty
+                        cx = grid_x * TILE_SIZE + half_tile
+                        cy = grid_y * TILE_SIZE + half_tile
+                        
+                        # In-place clean matching structures from list
+                        placed_turrets[:] = [t for t in placed_turrets if not (t.x_position == cx and t.y_position == cy)]
+                        placed_farms[:] = [f for f in placed_farms if not (f.x_position == cx and f.y_position == cy)]
+                
             elif event.key == pygame.K_SPACE:
                 if placing_mode:
                     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -178,8 +226,13 @@ while running:
                     
                     if 0 <= grid_x < COLS and 0 <= grid_y < ROWS:
                         if map[grid_y][grid_x] == 0:
-                            # Purchasing constraints (Requirement added)
                             cost = TURRET_PRICES[selected_shape]
+                            
+                            is_placing_farm = selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]
+                            if is_placing_farm and len(placed_farms) >= MAX_FARMS:
+                                # Block placing if farm threshold has reached 20
+                                continue
+                                
                             if money >= cost:
                                 money -= cost
                                 center_x = grid_x * TILE_SIZE + half_tile
@@ -188,7 +241,7 @@ while running:
                                 map[grid_y][grid_x] = 3
                                 
                                 # Decide if we should place a farm or a combat turret
-                                if selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]:
+                                if is_placing_farm:
                                     new_farm = farm(center_x, center_y, selected_shape)
                                     placed_farms.append(new_farm)
                                 else:
@@ -199,18 +252,45 @@ while running:
                                     
                                 placing_mode = False
 
-    # Spawn enemies
-    spawn_timer += delta_time
-    if spawn_timer >= spawn_cooldown and len(enemies) < 10000:
-        speed, damage, hp, spawning_type = enemy_randomizer()
-        new_enemy = enemy(speed, damage, pixel_path, select_type=spawning_type, hp=hp)
-        enemies.append(new_enemy)
-        spawn_timer = 0.0
+    # --- WAVE SYSTEM STATE MACHINE ---
+    if wave_state == "spawning":
+        spawn_timer += delta_time
+        if spawn_timer >= spawn_cooldown and enemies_spawned_this_wave < wave_size:
+            speed, damage, hp, spawning_type = enemy_randomizer()
+            
+            # Enemy HP increases by 30% per wave to make it harder
+            hp_modifier = 1.0 + (current_wave - 1) * 0.3
+            scaled_hp = int(hp * hp_modifier)
+            
+            new_enemy = enemy(speed, damage, pixel_path, select_type=spawning_type, hp=scaled_hp)
+            enemies.append(new_enemy)
+            enemies_spawned_this_wave += 1
+            spawn_timer = 0.0
+            
+        if enemies_spawned_this_wave >= wave_size:
+            wave_state = "clearing"
 
-    # Move enemies & remove if path is finished (Requirement 4)
+    elif wave_state == "clearing":
+        # Wait until all active spawned enemies are fully destroyed
+        if len(enemies) == 0:
+            wave_state = "intermission"
+            wave_timer = 5.0  # Reset intermission countdown to exactly 5 seconds
+
+    elif wave_state == "intermission":
+        wave_timer -= delta_time
+        if wave_timer <= 0.0:
+            # Advance wave progression and reset states
+            current_wave += 1
+            wave_size = 5 + (current_wave * 2)  # Scale up spawning volumes
+            enemies_spawned_this_wave = 0
+            wave_state = "spawning"
+
+    # Move enemies & check if they leaked
     for current_enemy in enemies[:]:
         van_dang_di_chuyen = current_enemy.move(delta_time)
         if not van_dang_di_chuyen:
+            # Enemy leaked! Deduct base Fortress Health
+            fortress_hp -= current_enemy.damage
             enemies.remove(current_enemy)
 
     # Move bullets & process collisions (Requirement 4)
@@ -230,7 +310,9 @@ while running:
                 if current_bullet in bullets:
                     bullets.remove(current_bullet)
                 if current_enemy.hp <= 0:
-                    # Enemy bounty reward has been removed (Requirement updated)
+                    # Grant bounty reward money based on enemy shape (Requirement updated)
+                    bounty = enemy_types.get(current_enemy.type, {}).get("bounty", 10)
+                    money += bounty
                     enemies.remove(current_enemy)
                 break
 
@@ -242,7 +324,7 @@ while running:
             if map[row_index][column_index] == 1:
                 pygame.draw.rect(screen, path_color, (column_index * TILE_SIZE, row_index * TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
-    # Update and draw placed Farms (Requirement added)
+    # Update and draw placed Farms
     for current_farm in placed_farms:
         income = current_farm.update(delta_time)
         money += income
@@ -305,16 +387,35 @@ while running:
             
             draw_shape(screen, selected_shape, (0, 255, 255), (snap_x, snap_y), HEX_SIZE, alpha=100)
 
-    # --- RENDER ON-SCREEN UI COUNTER (Requirement added) ---
+    # --- RENDER ON-SCREEN UI COUNTER ---
     money_label = ui_font.render(f"Money: ${int(money)}", True, (255, 215, 0))
     screen.blit(money_label, (10, 10))
+    
+    # Render Wave & Base Fortress Health Displays
+    wave_label = ui_font.render(f"Wave: {current_wave}", True, (255, 255, 255))
+    screen.blit(wave_label, (10, 40))
+    
+    fortress_label = ui_font.render(f"Fortress HP: {fortress_hp}", True, (255, 50, 50))
+    screen.blit(fortress_label, (10, 70))
+    
+    # 5-second pause intermission visual warning countdown
+    if wave_state == "intermission":
+        pause_label = ui_font.render(f"Next Wave in: {int(wave_timer + 1)}s", True, (0, 255, 255))
+        screen.blit(pause_label, (SCREEN_WIDTH // 2 - 100, 10))
     
     if placing_mode:
         # Display the price of the active placement preview
         price = TURRET_PRICES[selected_shape]
         color = (0, 255, 0) if money >= price else (255, 50, 50)
-        cost_label = ui_font.render(f"Cost: ${price} (Place with SPACE)", True, color)
-        screen.blit(cost_label, (10, 40))
+        
+        # Check if currently blocked by the farm cap
+        is_placing_farm = selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]
+        if is_placing_farm and len(placed_farms) >= MAX_FARMS:
+            cost_label = ui_font.render(f"FARM LIMIT REACHED ({MAX_FARMS} Max)", True, (255, 50, 50))
+        else:
+            cost_label = ui_font.render(f"Cost: ${price} (Place with SPACE)", True, color)
+            
+        screen.blit(cost_label, (10, 100))
 
     pygame.display.flip()
 

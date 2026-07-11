@@ -33,7 +33,7 @@ def load_and_scale_asset(shape_type, size):
         raw_img = pygame.image.load(path).convert_alpha()
         orig_w, orig_h = raw_img.get_size()
         
-        # Scale modifier makes Eight Way (hexagon) 1.5x larger (Requirement updated)
+        # Scale modifier makes Eight Way (hexagon) 1.5x larger
         scale_modifier = 1.5 if shape_type == ShapeTurret.hexagon else 1.0
         
         new_h = int(size * 2 * scale_modifier)
@@ -125,9 +125,13 @@ class turret:
             surface.blit(self.image, self.rect.topleft)
 
     def construct_enemy_list(self, enemies: list[enemy]) -> list[enemy]:
+        """
+        Gathers targeted enemies inside range.
+        Expanded search limit to Settings.tile_size * 5 (Requirement updated).
+        """
         enemy_in_range = []
         for enemy in enemies:
-            if abs(enemy.x_position - self.x_position) < Settings.tile_size * 3 and abs(enemy.y_position - self.y_position) < Settings.tile_size * 3:
+            if abs(enemy.x_position - self.x_position) < Settings.tile_size * 5 and abs(enemy.y_position - self.y_position) < Settings.tile_size * 5:
                 enemy_in_range.append(enemy)
         return enemy_in_range
         
