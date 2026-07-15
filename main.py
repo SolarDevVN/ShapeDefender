@@ -47,10 +47,16 @@ enemy_types = {
     "square": {"speed": 100, "damage": 15, "hp": 150, "bounty": 15},
     "triangle": {"speed": 160, "damage": 5, "hp": 75, "bounty": 20},
     "pentagon": {"speed": 60, "damage": 25, "hp": 250, "bounty": 35},
-    "hexagon": {"speed": 40, "damage": 30, "hp": 500, "bounty": 60}
+    "hexagon": {"speed": 40, "damage": 30, "hp": 500, "bounty": 60},
+    
+    # Newly introduced specialized ranks
+    "diamond": {"speed": 280, "damage": 10, "hp": 60, "bounty": 25},            
+    "star": {"speed": 100, "damage": 20, "hp": 180, "bounty": 40},              
+    "octagon": {"speed": 100, "damage": 40, "hp": 800, "bounty": 100},           
+    "dodecagon": {"speed": 30, "damage": 100, "hp": 3000, "bounty": 500}        
 }
 
-# Entire 2-branch evolutionary pathways mapped out
+# 3-branch evolutionary pathways mapped out (Requirement updated)
 EVOLUTION_TREE = {
     # --- Eater Tree ---
     ShapeTurret.eater: {
@@ -100,26 +106,74 @@ EVOLUTION_TREE = {
     },
     ShapeTurret.ultra: {
         "next": [ShapeTurret.hyper],
-        "cost": 9600  
+        "cost": 30000  
     },
     ShapeTurret.super_t: {"next": [], "cost": None},
     ShapeTurret.scatter: {"next": [], "cost": None},
-    ShapeTurret.hyper: {"next": [], "cost": None}
+    ShapeTurret.hyper: {"next": [], "cost": None},
+
+    # --- Scout Tree (Requirement added) ---
+    ShapeTurret.scout: {
+        "next": [ShapeTurret.hitman],
+        "cost": 300
+    },
+    ShapeTurret.hitman: {
+        "next": [ShapeTurret.scoper],
+        "cost": 600
+    },
+    ShapeTurret.scoper: {
+        "next": [ShapeTurret.watcher, ShapeTurret.railgun],
+        "cost": 1200
+    },
+    ShapeTurret.watcher: {
+        "next": [ShapeTurret.agent],
+        "cost": 2400
+    },
+    ShapeTurret.agent: {"next": [], "cost": None},
+    ShapeTurret.railgun: {
+        "next": [ShapeTurret.double_railgun],
+        "cost": 2400
+    },
+    ShapeTurret.double_railgun: {
+        "next": [ShapeTurret.triple_railgun],
+        "cost": 9600
+    },
+    ShapeTurret.triple_railgun: {"next": [], "cost": None}
 }
 
-# Base build shop prices (Eater / Double / Farms)
+# Base build shop prices (Eater / Double / Scout / Farms)
 TURRET_PRICES = {
     ShapeTurret.eater: 40,
     ShapeTurret.double: 40,  
+    ShapeTurret.scout: 40,   # Unlocked Scout Base Class (Requirement updated)
     ShapeTurret.farm_t1: 100,
     ShapeTurret.farm_t2: 250
 }
 
 # Maximum active farm cap set to 20
 MAX_FARMS = 20
+MAX_TURRETS = 30
 
-def enemy_randomizer():
-    enemy_type = random.choice(list(enemy_types.keys()))
+def enemy_randomizer(is_boss=False, is_miniboss=False):
+    """
+    Spawns wave-based mini-bosses or dodecagon raid bosses.
+    Dynamically unlocks enemy classes based on wave progression.
+    """
+    if is_boss:
+        attributes = enemy_types["dodecagon"]
+        return attributes["speed"], attributes["damage"], attributes["hp"], "dodecagon"
+    elif is_miniboss:
+        attributes = enemy_types["octagon"]
+        return attributes["speed"], attributes["damage"], attributes["hp"], "octagon"
+        
+    # Start with circle and square, then unlock others progressively
+    pool = ["circle", "square"]
+    if current_wave >= 3:
+        pool.extend(["triangle", "pentagon", "hexagon"])
+    if current_wave >= 5:
+        pool.extend(["diamond", "star"])
+        
+    enemy_type = random.choice(pool)
     attributes = enemy_types[enemy_type]
     return attributes["speed"], attributes["damage"], attributes["hp"], enemy_type
 
@@ -193,7 +247,7 @@ spawn_cooldown = 0.5
 placing_mode = False          
 selected_shape = ShapeTurret.eater    
 
-# Starting money bank set to your massive testing budget (Requirement updated)
+# Starting money bank set to your massive testing budget (Adjust for balanced run!)
 money = 100000000000000000000000000000000000000000000000000000000000000000000000
 
 # Base Fortress HP
@@ -201,13 +255,62 @@ fortress_hp = 100
 
 # Wave system state variables
 current_wave = 1
-enemies_spawned_this_wave = 0
-wave_size = 5               
 wave_state = "spawning"     
 wave_timer = 0.0
 
+# Active spawn queue and automatic skips
+spawn_queue = []
+auto_skip = False
+auto_skip_timer = 0.0
+
 # Tracks current selected turret to evolve
 selected_turret = None
+
+# Game state handlers (Requirement 2 updated)
+game_state = "playing"  # Can be: "playing", "gameover", "index"
+
+# UI Font Render Cache variables (Requirement 1 updated)
+last_money = -1
+last_wave = -1
+last_fortress_hp = -1
+last_auto_skip = None
+
+money_surf = None
+wave_surf = None
+fortress_surf = None
+autoskip_surf = None
+
+def queue_wave(wave_num):
+    """
+    Assembles wave assets and packages them into the active spawn queue.
+    """
+    size = 5 + (wave_num * 2)
+    is_boss_wave = (wave_num % 10 == 0)
+    
+    for i in range(size):
+        is_last = (i == size - 1)
+        if is_boss_wave and is_last:
+            speed, damage, hp, spawning_type = enemy_randomizer(is_boss=True)
+        elif is_last:
+            speed, damage, hp, spawning_type = enemy_randomizer(is_miniboss=True)
+        else:
+            speed, damage, hp, spawning_type = enemy_randomizer()
+            
+        hp_modifier = 1.0 + (wave_num - 1) * 0.3
+        scaled_hp = int(hp * hp_modifier)
+        
+        speed_modifier = 1.0 + (wave_num - 1) * 0.05
+        scaled_speed = int(speed * speed_modifier)
+        
+        spawn_queue.append({
+            "speed": scaled_speed,
+            "damage": damage,
+            "hp": scaled_hp,
+            "type": spawning_type
+        })
+
+# Pre-queue Wave 1
+queue_wave(current_wave)
 
 clock = pygame.time.Clock()
 running = True
@@ -216,7 +319,7 @@ while running:
     delta_time = clock.tick(60) / 1000.0
 
     # --- GAME OVER STATE HANDLER ---
-    if fortress_hp <= 0:
+    if game_state == "gameover":
         screen.fill((20, 20, 20))
         game_over_label = ui_font.render("GAME OVER - The Fortress has Fallen!", True, (255, 50, 50))
         exit_label = ui_font.render("Press any key to exit.", True, (150, 150, 150))
@@ -224,12 +327,48 @@ while running:
         screen.blit(exit_label, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20))
         pygame.display.flip()
         
-        waiting_for_exit = True
-        while waiting_for_exit:
-            for event in pygame.event.get():
-                if event.type in [pygame.QUIT, pygame.KEYDOWN]:
-                    pygame.quit()
-                    sys.exit()
+        # Halt standard iteration but allow key events to terminate the game safely
+        for event in pygame.event.get():
+            if event.type in [pygame.QUIT, pygame.KEYDOWN]:
+                running = False
+        continue
+
+    # --- INTERACTIVE INDEX GUIDE MENU OVERLAY (Requirement added) ---
+    elif game_state == "index":
+        screen.fill((15, 15, 15))
+        title_lbl = ui_font.render("=== shape evolution index ===", True, (255, 215, 0))
+        screen.blit(title_lbl, (SCREEN_WIDTH // 2 - 120, 20))
+        
+        # Simple text columns representing the branches
+        col1_y = 70
+        screen.blit(ui_font.render("[ EATER BRANCH ]", True, (0, 191, 255)), (50, col1_y))
+        screen.blit(ui_font.render("Eater -> Devourer ($300)", True, (200, 200, 200)), (50, col1_y + 30))
+        screen.blit(ui_font.render("Devourer -> Cluster ($600)", True, (200, 200, 200)), (50, col1_y + 60))
+        screen.blit(ui_font.render("Cluster -> Omega/Fracture/Triple ($1200)", True, (200, 200, 200)), (50, col1_y + 90))
+        
+        screen.blit(ui_font.render("[ DOUBLE BRANCH ]", True, (255, 165, 0)), (50, col1_y + 140))
+        screen.blit(ui_font.render("Double -> Triple / Tri-Way ($300)", True, (200, 200, 200)), (50, col1_y + 170))
+        screen.blit(ui_font.render("Triple -> Orchestra ($600) -> Super ($1200)", True, (200, 200, 200)), (50, col1_y + 200))
+        screen.blit(ui_font.render("Tri-Way -> Five-Way / Six-Way ($600)", True, (200, 200, 200)), (50, col1_y + 230))
+        screen.blit(ui_font.render("Five-Way -> Scatter ($1200)", True, (200, 200, 200)), (50, col1_y + 260))
+        screen.blit(ui_font.render("Six-Way -> Eight-Way ($1200) -> Ultra -> Hyper", True, (200, 200, 200)), (50, col1_y + 290))
+        
+        screen.blit(ui_font.render("[ SCOUT BRANCH ]", True, (154, 205, 50)), (50, col1_y + 340))
+        screen.blit(ui_font.render("Scout -> Hitman ($300) -> Scoper ($600)", True, (200, 200, 200)), (50, col1_y + 370))
+        screen.blit(ui_font.render("Scoper -> Watcher / Railgun ($1200)", True, (200, 200, 200)), (50, col1_y + 400))
+        screen.blit(ui_font.render("Watcher -> Agent ($2400 - Half-map range!)", True, (200, 200, 200)), (50, col1_y + 430))
+        screen.blit(ui_font.render("Railgun -> Double Railgun -> Triple Railgun", True, (200, 200, 200)), (50, col1_y + 460))
+        
+        esc_lbl = ui_font.render("Press 'I' to exit index guide", True, (255, 50, 50))
+        screen.blit(esc_lbl, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT - 40))
+        pygame.display.flip()
+        
+        # Halt normal updates, wait for toggle event
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_i:
+                game_state = "playing"
         continue
 
     for event in pygame.event.get():
@@ -237,25 +376,68 @@ while running:
             running = False
         
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            # Check left clicks to interactively select a turret for upgrades
+            # Left-click triggers placement OR selection depending on placing mode
             mouse_x, mouse_y = pygame.mouse.get_pos()
-            clicked_any = False
-            for t in turrets_group:
-                if t.rect.collidepoint(mouse_x, mouse_y):
-                    selected_turret = t
-                    clicked_any = True
-                    break
-            if not clicked_any:
-                selected_turret = None  # Deselect if clicked elsewhere
+            
+            if placing_mode:
+                grid_x = mouse_x // TILE_SIZE
+                grid_y = mouse_y // TILE_SIZE
+                
+                if 0 <= grid_x < COLS and 0 <= grid_y < ROWS:
+                    if map[grid_y][grid_x] == 0:
+                        cost = TURRET_PRICES[selected_shape]
+                        is_placing_farm = selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]
+                        
+                        # Restrict placement if trying to exceed maximum turret limits
+                        if not is_placing_farm and len(turrets_group) >= MAX_TURRETS:
+                            continue
+                        if is_placing_farm and len(farms_group) >= MAX_FARMS:
+                            continue
+                            
+                        if money >= cost:
+                            money -= cost
+                            center_x = grid_x * TILE_SIZE + half_tile
+                            center_y = grid_y * TILE_SIZE + half_tile
+                            
+                            map[grid_y][grid_x] = 3
+                            
+                            # Instantiations append directly into Groups
+                            if is_placing_farm:
+                                new_farm = farm(center_x, center_y, selected_shape)
+                                farms_group.add(new_farm)
+                            else:
+                                new_turret = turret(center_x, center_y, shape_type=selected_shape)
+                                new_turret.cooldown_timer = 0.0
+                                new_turret.placing(HEX_SIZE)
+                                turrets_group.add(new_turret)
+                                
+                            placing_mode = False
+            else:
+                # Left-click selection on placed turrets
+                clicked_any = False
+                for t in turrets_group:
+                    if t.rect.collidepoint(mouse_x, mouse_y):
+                        selected_turret = t
+                        clicked_any = True
+                        break
+                if not clicked_any:
+                    selected_turret = None  # Deselect if clicked elsewhere
 
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 running = False
             
-            # Key bindings targeting base shop placements (Eater, Double, Farms)
+            # Index Guide toggling (Requirement added)
+            elif event.key == pygame.K_i:
+                game_state = "index"
+            
+            # Key bindings targeting base shop placements (Double, Eater, Scout, Farms)
             elif event.key == pygame.K_1:
                 placing_mode = True
                 selected_shape = ShapeTurret.double  
+            elif event.key == pygame.K_2:
+                placing_mode = True
+                selected_shape = ShapeTurret.scout  # Buy Scout (Requirement added)
             elif event.key == pygame.K_3:
                 placing_mode = True
                 selected_shape = ShapeTurret.eater
@@ -266,6 +448,16 @@ while running:
                 placing_mode = True
                 selected_shape = ShapeTurret.farm_t2
                 
+            # Press 'A' key to toggle Auto-Skip ON or OFF
+            elif event.key == pygame.K_a:
+                auto_skip = not auto_skip
+
+            # Press 'N' key to manually SKIP wave immediately (High Risk)
+            elif event.key == pygame.K_n:
+                current_wave += 1
+                queue_wave(current_wave)
+                auto_skip_timer = 0.0
+
             # Press '0' key to delete/sell selected assets
             elif event.key == pygame.K_0:
                 mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -287,41 +479,8 @@ while running:
                         for f in list(farms_group):
                             if f.x_position == cx and f.y_position == cy:
                                 f.kill()
-                
-            elif event.key == pygame.K_SPACE:
-                if placing_mode:
-                    mouse_x, mouse_y = pygame.mouse.get_pos()
-                    grid_x = mouse_x // TILE_SIZE
-                    grid_y = mouse_y // TILE_SIZE
-                    
-                    if 0 <= grid_x < COLS and 0 <= grid_y < ROWS:
-                        if map[grid_y][grid_x] == 0:
-                            cost = TURRET_PRICES[selected_shape]
-                            
-                            is_placing_farm = selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]
-                            if is_placing_farm and len(farms_group) >= MAX_FARMS:
-                                continue
-                                
-                            if money >= cost:
-                                money -= cost
-                                center_x = grid_x * TILE_SIZE + half_tile
-                                center_y = grid_y * TILE_SIZE + half_tile
-                                
-                                map[grid_y][grid_x] = 3
-                                
-                                # Instantiations append directly into Groups
-                                if is_placing_farm:
-                                    new_farm = farm(center_x, center_y, selected_shape)
-                                    farms_group.add(new_farm)
-                                else:
-                                    new_turret = turret(center_x, center_y, shape_type=selected_shape)
-                                    new_turret.cooldown_timer = 0.0
-                                    new_turret.placing(HEX_SIZE)
-                                    turrets_group.add(new_turret)
-                                    
-                                placing_mode = False
 
-            # Unified evolutionary branching triggers bound to keyboard events
+            # Unified evolutionary branching triggers bound to keyboard events (Requirement updated)
             elif selected_turret is not None:
                 current_type = selected_turret.shape_type
                 node = EVOLUTION_TREE.get(current_type)
@@ -329,115 +488,104 @@ while running:
                 if node and len(node["next"]) > 0:
                     evolve_cost = node["cost"]
                     if money >= evolve_cost:
-                        # --- Eater Branch Triggers ---
-                        if current_type == ShapeTurret.eater and event.key == pygame.K_u:
-                            money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.devourer
-                            selected_turret.original_image = None  
-                        elif current_type == ShapeTurret.devourer and event.key == pygame.K_u:
-                            money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.cluster
-                            selected_turret.original_image = None
-                        elif current_type == ShapeTurret.cluster:
-                            if event.key == pygame.K_7:
-                                money -= evolve_cost
-                                selected_turret.shape_type = ShapeTurret.omega
-                                selected_turret.original_image = None
-                            elif event.key == pygame.K_8:
-                                money -= evolve_cost
-                                selected_turret.shape_type = ShapeTurret.fracture
-                                selected_turret.original_image = None
-                            elif event.key == pygame.K_9:
-                                money -= evolve_cost
-                                selected_turret.shape_type = ShapeTurret.triple_cluster
-                                selected_turret.original_image = None
-                                
-                        # --- Double Branch Triggers ---
+                        next_type = None
+                        
+                        # Unified conditional branching assignments
+                        if current_type == ShapeTurret.cluster:
+                            if event.key == pygame.K_7: next_type = ShapeTurret.omega
+                            elif event.key == pygame.K_8: next_type = ShapeTurret.fracture
+                            elif event.key == pygame.K_9: next_type = ShapeTurret.triple_cluster
                         elif current_type == ShapeTurret.double:
-                            if event.key == pygame.K_7:
-                                money -= evolve_cost
-                                selected_turret.shape_type = ShapeTurret.triple
-                                selected_turret.original_image = None
-                            elif event.key == pygame.K_8:
-                                money -= evolve_cost
-                                selected_turret.shape_type = ShapeTurret.tri_way
-                                selected_turret.original_image = None
-                                
-                        elif current_type == ShapeTurret.triple and event.key == pygame.K_u:
-                            money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.orchestra
-                            selected_turret.original_image = None
-                            
+                            if event.key == pygame.K_7: next_type = ShapeTurret.triple
+                            elif event.key == pygame.K_8: next_type = ShapeTurret.tri_way
                         elif current_type == ShapeTurret.tri_way:
-                            if event.key == pygame.K_7:
-                                money -= evolve_cost
-                                selected_turret.shape_type = ShapeTurret.five_way
-                                selected_turret.original_image = None
-                            elif event.key == pygame.K_8:
-                                money -= evolve_cost
-                                selected_turret.shape_type = ShapeTurret.six_way
-                                selected_turret.original_image = None
-                                
-                        elif current_type == ShapeTurret.orchestra and event.key == pygame.K_u:
-                            money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.super_t
-                            selected_turret.original_image = None
+                            if event.key == pygame.K_7: next_type = ShapeTurret.five_way
+                            elif event.key == pygame.K_8: next_type = ShapeTurret.six_way
+                        elif current_type == ShapeTurret.scoper:
+                            if event.key == pygame.K_7: next_type = ShapeTurret.watcher
+                            elif event.key == pygame.K_8: next_type = ShapeTurret.railgun
+                        elif len(node["next"]) == 1 and event.key == pygame.K_u:
+                            next_type = node["next"][0]
                             
-                        elif current_type == ShapeTurret.five_way and event.key == pygame.K_u:
+                        # Perform the actual evolution update if a type is set
+                        if next_type:
                             money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.scatter
-                            selected_turret.original_image = None
-                            
-                        elif current_type == ShapeTurret.six_way and event.key == pygame.K_u:
-                            money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.eight_way
-                            selected_turret.original_image = None
-                            
-                        elif current_type == ShapeTurret.eight_way and event.key == pygame.K_u:
-                            money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.ultra
-                            selected_turret.original_image = None
-                            
-                        elif current_type == ShapeTurret.ultra and event.key == pygame.K_u:
-                            money -= evolve_cost
-                            selected_turret.shape_type = ShapeTurret.hyper
+                            selected_turret.shape_type = next_type
                             selected_turret.original_image = None
 
-    # --- WAVE SYSTEM STATE MACHINE ---
-    if wave_state == "spawning":
+    # --- WAVE QUEUE SPAWNER ---
+    if len(spawn_queue) > 0:
         spawn_timer += delta_time
-        if spawn_timer >= spawn_cooldown and enemies_spawned_this_wave < wave_size:
-            speed, damage, hp, spawning_type = enemy_randomizer()
-            hp_modifier = 1.0 + (current_wave - 1) * 0.3
-            scaled_hp = int(hp * hp_modifier)
-            
-            new_enemy = enemy(speed, damage, pixel_path, select_type=spawning_type, hp=scaled_hp)
-            enemies_group.add(new_enemy)
-            enemies_spawned_this_wave += 1
+        if spawn_timer >= spawn_cooldown:
+            # Spawn multiple enemies if the queue builds up (High Risk!)
+            spawns_this_tick = min(len(spawn_queue), 1 + len(spawn_queue) // 5)
+            for _ in range(spawns_this_tick):
+                enemy_data = spawn_queue.pop(0)
+                new_enemy = enemy(enemy_data["speed"], enemy_data["damage"], pixel_path, select_type=enemy_data["type"], hp=enemy_data["hp"])
+                enemies_group.add(new_enemy)
             spawn_timer = 0.0
-            
-        if enemies_spawned_this_wave >= wave_size:
+            wave_state = "spawning"
+    else:
+        # If queue empty and all active enemies on screen are cleared
+        if len(enemies_group) == 0:
+            if wave_state != "intermission":
+                wave_state = "intermission"
+                wave_timer = 5.0
+        else:
             wave_state = "clearing"
 
-    elif wave_state == "clearing":
-        if len(enemies_group) == 0:
-            wave_state = "intermission"
-            wave_timer = 5.0  
-
-    elif wave_state == "intermission":
+    # Handle standard Wave Intermission Delay
+    if wave_state == "intermission":
+        # Auto-skip toggle immediately bypasses the intermission delay
+        if auto_skip:
+            wave_timer = 0.0
+            
         wave_timer -= delta_time
         if wave_timer <= 0.0:
             current_wave += 1
-            wave_size = 5 + (current_wave * 2)  
-            enemies_spawned_this_wave = 0
+            queue_wave(current_wave)
             wave_state = "spawning"
+
+    # --- CONTINUOUS 5-SECOND AUTO-SKIP TIMER ---
+    if auto_skip:
+        auto_skip_timer += delta_time
+        if auto_skip_timer >= 5.0:
+            auto_skip_timer = 0.0
+            current_wave += 1
+            queue_wave(current_wave)  # Stack new wave into queue every 5 seconds
+    else:
+        auto_skip_timer = 0.0
 
     # --- UPDATE POSITIONS USING GROUPS ---
     for current_enemy in list(enemies_group):
         van_dang_di_chuyen = current_enemy.move(delta_time)
+        
+        # Star enemy stun projectile shooting logic loop
+        if current_enemy.type == "star" and current_enemy.alive():
+            if not hasattr(current_enemy, "stun_timer_clock"):
+                current_enemy.stun_timer_clock = 0.0
+            current_enemy.stun_timer_clock += delta_time
+            if current_enemy.stun_timer_clock >= 3.0:  
+                current_enemy.stun_timer_clock = 0.0
+                
+                # Target nearest active combat turret
+                nearest_t = None
+                min_dist = 999999
+                for t in turrets_group:
+                    dist = math.hypot(t.x_position - current_enemy.x_position, t.y_position - current_enemy.y_position)
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest_t = t
+                if nearest_t:
+                    angle = -math.degrees(math.atan2(nearest_t.y_position - current_enemy.y_position, nearest_t.x_position - current_enemy.x_position))
+                    stun_ball = bullet(current_enemy.x_position, current_enemy.y_position, angle, speed=120, damage=0, bullet_type="stun")
+                    bullets_group.add(stun_ball)
+                    
         if not van_dang_di_chuyen:
             fortress_hp -= current_enemy.damage
             current_enemy.kill()
+            if fortress_hp <= 0:
+                game_state = "gameover"
 
     # Move bullets and pass group reference
     for current_bullet in list(bullets_group):
@@ -452,6 +600,14 @@ while running:
 
     # Target finding and cooling updates for Turrets group
     for current_turret in turrets_group:
+        if not hasattr(current_turret, "stun_timer"):
+            current_turret.stun_timer = 0.0
+            
+        # Count down active stun effects
+        if current_turret.stun_timer > 0:
+            current_turret.stun_timer -= delta_time
+            continue  
+            
         if current_turret.cooldown_timer > 0:
             current_turret.cooldown_timer -= delta_time
 
@@ -466,25 +622,44 @@ while running:
                 current_turret.shoot(bullets_group, predicted_angle)
                 current_turret.cooldown_timer = current_turret.cooldown
 
-    # Collision updates utilizing Group methods
+    # Collision updates utilizing Group methods (Requirement 3 updated)
     for current_bullet in list(bullets_group):
-        collided_enemies = pygame.sprite.spritecollide(current_bullet, enemies_group, False)
-        if len(collided_enemies) > 0:
-            hit_target = collided_enemies[0]
-            hit_target.hp -= current_bullet.damage
-            
-            # Triggers explode mini-bullets if this is an evolution class projectile (unless it is piercing Hyper)
-            if current_bullet.bullet_type != "hyper":
-                current_bullet.trigger_explosion(bullets_group)
+        # Process Stun Projectile hits against Turrets
+        if current_bullet.bullet_type == "stun":
+            collided_turrets = pygame.sprite.spritecollide(current_bullet, turrets_group, False)
+            if len(collided_turrets) > 0:
+                hit_turret = collided_turrets[0]
+                hit_turret.stun_timer = 3.0  
                 current_bullet.kill()
-            else:
-                # If Hyper bullet, don't delete on first hit (Piercing mechanics)
-                pass
+            continue
+
+        # Optimize collisions with squared distance math
+        for current_enemy in enemies_group:
+            dx = current_bullet.x_position - current_enemy.x_position
+            dy = current_bullet.y_position - current_enemy.y_position
+            dist_squared = dx * dx + dy * dy
             
-            if hit_target.hp <= 0:
-                bounty = enemy_types.get(hit_target.type, {}).get("bounty", 10)
-                money += bounty
-                hit_target.kill()
+            if dist_squared < 400:  # 20 * 20 = 400 (collision radius squared)
+                # Apply high-velocity slow-down triggers if hit by a sniper dart (Requirement added)
+                if current_bullet.bullet_type == "slow":
+                    current_enemy.slow_timer = 2.0
+                
+                current_enemy.hp -= current_bullet.damage
+                
+                # Triggers explode mini-bullets if this is an evolution class projectile (unless it is piercing Hyper/Laser)
+                if current_bullet.bullet_type in ["hyper", "laser"]:
+                    current_bullet.pierce_limit -= 1  
+                    if current_bullet.pierce_limit <= 0:
+                        current_bullet.kill()
+                else:
+                    current_bullet.trigger_explosion(bullets_group)
+                    current_bullet.kill()
+                
+                if current_enemy.hp <= 0:
+                    bounty = enemy_types.get(current_enemy.type, {}).get("bounty", 10)
+                    money += bounty
+                    current_enemy.kill()
+                break
 
     # --- DRAW BACKGROUND (Reverted to classic vector path render) ---
     screen.fill((0, 0, 0))
@@ -502,8 +677,9 @@ while running:
     for current_turret in turrets_group:
         current_turret.draw(screen, HEX_SIZE)
 
-    # Render Enemies Health Bars
+    # Render Enemies Health Bars and update rainbow textures dynamically
     for current_enemy in enemies_group:
+        current_enemy.draw(screen)  
         bar_width = 30
         bar_height = 5
         health_ratio = max(0.0, min(1.0, current_enemy.hp / current_enemy.max_hp))
@@ -520,33 +696,67 @@ while running:
             snap_y = grid_y * TILE_SIZE + half_tile
             draw_shape(screen, selected_shape, (0, 255, 255), (snap_x, snap_y), HEX_SIZE, alpha=100)
 
-    # --- DRAW ON-SCREEN UI PANELS ---
-    money_label = ui_font.render(f"Money: ${int(money)}", True, (255, 215, 0))
-    screen.blit(money_label, (10, 10))
+    # --- DRAW ON-SCREEN UI PANELS (UI Font Render Cache) ---
+    if money != last_money:
+        money_surf = ui_font.render(f"Money: ${int(money)}", True, (255, 215, 0))
+        last_money = money
+    screen.blit(money_surf, (10, 10))
     
-    # Render Wave & Base Fortress Health Displays
-    wave_label = ui_font.render(f"Wave: {current_wave}", True, (255, 255, 255))
-    screen.blit(wave_label, (10, 40))
+    if current_wave != last_wave:
+        wave_surf = ui_font.render(f"Wave: {current_wave}", True, (255, 255, 255))
+        last_wave = current_wave
+    screen.blit(wave_surf, (10, 40))
     
-    fortress_label = ui_font.render(f"Fortress HP: {fortress_hp}", True, (255, 50, 50))
-    screen.blit(fortress_label, (10, 70))
+    if fortress_hp != last_fortress_hp:
+        fortress_surf = ui_font.render(f"Fortress HP: {fortress_hp}", True, (255, 50, 50))
+        last_fortress_hp = fortress_hp
+    screen.blit(fortress_surf, (10, 70))
     
+    if auto_skip != last_auto_skip:
+        autoskip_state_txt = "ON" if auto_skip else "OFF"
+        autoskip_col = (0, 255, 0) if auto_skip else (150, 150, 150)
+        autoskip_surf = ui_font.render(f"Auto-Skip: {autoskip_state_txt} (Press 'A')", True, autoskip_col)
+        last_auto_skip = auto_skip
+    screen.blit(autoskip_surf, (10, 100))
+    
+    skip_lbl = ui_font.render("Press 'N' to Skip Wave (High Risk!)", True, (255, 215, 0))
+    screen.blit(skip_lbl, (SCREEN_WIDTH - 320, 10))
+    
+    # Render Guide Menu Index prompt (Requirement added)
+    index_lbl = ui_font.render("Press 'I' for Evolution Index Guide", True, (255, 255, 255))
+    screen.blit(index_lbl, (SCREEN_WIDTH - 320, 40))
+    
+    # Render thin range indicator around selected turrets
+    if selected_turret is not None and selected_turret.alive():
+        # Faint cyan circle rendering over the grid
+        pygame.draw.circle(screen, (0, 255, 255), selected_turret.rect.center, Settings.tile_size * selected_turret.range_factor, 1)
+
+    # 5-second pause intermission visual warning countdown
     if wave_state == "intermission":
         pause_label = ui_font.render(f"Next Wave in: {int(wave_timer + 1)}s", True, (0, 255, 255))
         screen.blit(pause_label, (SCREEN_WIDTH // 2 - 100, 10))
-    
+        
+    # Render 5-second Auto-Skip active stacking warning
+    if auto_skip:
+        warn_lbl = ui_font.render(f"Auto-Skip Active: Next Wave Stack in {int(5.0 - auto_skip_timer + 1)}s!", True, (255, 165, 0))
+        screen.blit(warn_lbl, (SCREEN_WIDTH // 2 - 180, 40))
+
     if placing_mode:
         price = TURRET_PRICES[selected_shape]
         color = (0, 255, 0) if money >= price else (255, 50, 50)
         is_placing_farm = selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]
+        
+        # Enforce both active farm and turret caps
         if is_placing_farm and len(farms_group) >= MAX_FARMS:
             cost_label = ui_font.render(f"FARM LIMIT REACHED ({MAX_FARMS} Max)", True, (255, 50, 50))
+        elif not is_placing_farm and len(turrets_group) >= MAX_TURRETS:
+            cost_label = ui_font.render(f"TURRET LIMIT REACHED ({MAX_TURRETS} Max)", True, (255, 50, 50))
         else:
-            cost_label = ui_font.render(f"Cost: ${price} (Place with SPACE)", True, color)
-        screen.blit(cost_label, (10, 100))
+            cost_label = ui_font.render(f"Cost: ${price} (Left-Click to place)", True, color)
+        screen.blit(cost_label, (10, 130))
 
     # --- DRAW INTERACTIVE EVOLUTION UI PANEL ---
-    if selected_turret is not None:
+    if selected_turret is not None and selected_turret.alive():
         current_type = selected_turret.shape_type
         node = EVOLUTION_TREE.get(current_type)
         
@@ -554,7 +764,15 @@ while running:
         pygame.draw.rect(screen, (30, 30, 30), (0, 500, SCREEN_WIDTH, 100))
         pygame.draw.rect(screen, (100, 100, 100), (0, 500, SCREEN_WIDTH, 100), 2)
         
-        name_lbl = ui_font.render(f"Selected: {current_type}", True, (0, 255, 255))
+        # Render a red deletion warning key directly inside the dashboard
+        del_lbl = ui_font.render("Press '0' to Delete Structure", True, (255, 100, 100))
+        screen.blit(del_lbl, (SCREEN_WIDTH - 280, 560))
+        
+        # Render a yellow stun warning if the structure is inactive
+        if selected_turret.stun_timer > 0:
+            name_lbl = ui_font.render(f"Selected: {current_type} (STUNNED - {int(selected_turret.stun_timer + 1)}s)", True, (255, 165, 0))
+        else:
+            name_lbl = ui_font.render(f"Selected: {current_type}", True, (0, 255, 255))
         screen.blit(name_lbl, (20, 510))
         
         if node and len(node["next"]) > 0:
@@ -570,7 +788,7 @@ while running:
                 # Render a small scaled preview image of the next class
                 preview_img = load_and_scale_asset(next_class, 15)
                 if preview_img:
-                    screen.blit(preview_img, (SCREEN_WIDTH - 150, 515))
+                    screen.blit(preview_img, (SCREEN_WIDTH - 430, 515))
             
             elif current_type == ShapeTurret.cluster:
                 branch_lbl = ui_font.render(f"Branches: Cost: ${evolve_cost}", True, (255, 255, 255))
@@ -589,9 +807,9 @@ while running:
                 img_f = load_and_scale_asset(ShapeTurret.fracture, 15)
                 img_tc = load_and_scale_asset(ShapeTurret.triple_cluster, 15)
                 
-                if img_o: screen.blit(img_o, (SCREEN_WIDTH - 250, 515))
-                if img_f: screen.blit(img_f, (SCREEN_WIDTH - 170, 515))
-                if img_tc: screen.blit(img_tc, (SCREEN_WIDTH - 90, 515))
+                if img_o: screen.blit(img_o, (SCREEN_WIDTH - 530, 515))
+                if img_f: screen.blit(img_f, (SCREEN_WIDTH - 450, 515))
+                if img_tc: screen.blit(img_tc, (SCREEN_WIDTH - 370, 515))
                 
             elif current_type == ShapeTurret.double:
                 branch_lbl = ui_font.render(f"Branches: Cost: ${evolve_cost}", True, (255, 255, 255))
@@ -606,8 +824,8 @@ while running:
                 img_tr = load_and_scale_asset(ShapeTurret.triple, 15)
                 img_tw = load_and_scale_asset(ShapeTurret.tri_way, 15)
                 
-                if img_tr: screen.blit(img_tr, (SCREEN_WIDTH - 170, 515))
-                if img_tw: screen.blit(img_tw, (SCREEN_WIDTH - 90, 515))
+                if img_tr: screen.blit(img_tr, (SCREEN_WIDTH - 450, 515))
+                if img_tw: screen.blit(img_tw, (SCREEN_WIDTH - 370, 515))
                 
             elif current_type == ShapeTurret.tri_way:
                 branch_lbl = ui_font.render(f"Branches: Cost: ${evolve_cost}", True, (255, 255, 255))
@@ -622,8 +840,24 @@ while running:
                 img_five = load_and_scale_asset(ShapeTurret.five_way, 15)
                 img_six = load_and_scale_asset(ShapeTurret.six_way, 15)
                 
-                if img_five: screen.blit(img_five, (SCREEN_WIDTH - 170, 515))
-                if img_six: screen.blit(img_six, (SCREEN_WIDTH - 90, 515))
+                if img_five: screen.blit(img_five, (SCREEN_WIDTH - 450, 515))
+                if img_six: screen.blit(img_six, (SCREEN_WIDTH - 370, 515))
+                
+            elif current_type == ShapeTurret.scoper:
+                branch_lbl = ui_font.render(f"Branches: Cost: ${evolve_cost}", True, (255, 255, 255))
+                screen.blit(branch_lbl, (20, 540))
+                
+                lbl_watcher = ui_font.render("[7] Watcher", True, (0, 255, 0) if money >= evolve_cost else (255, 50, 50))
+                lbl_rail = ui_font.render("[8] Railgun", True, (0, 255, 0) if money >= evolve_cost else (255, 50, 50))
+                
+                screen.blit(lbl_watcher, (20, 570))
+                screen.blit(lbl_rail, (150, 570))
+                
+                img_wa = load_and_scale_asset(ShapeTurret.watcher, 15)
+                img_ra = load_and_scale_asset(ShapeTurret.railgun, 15)
+                
+                if img_wa: screen.blit(img_wa, (SCREEN_WIDTH - 450, 515))
+                if img_ra: screen.blit(img_ra, (SCREEN_WIDTH - 370, 515))
         else:
             max_lbl = ui_font.render("Evolution Path: MAX TIER REACHED!", True, (0, 255, 0))
             screen.blit(max_lbl, (20, 550))

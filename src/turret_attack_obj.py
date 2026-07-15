@@ -9,26 +9,33 @@ class bullet(pygame.sprite.Sprite):
         self.x_position = x_position
         self.y_position = y_position
         
-        # Track origin coordinates to measure travel distance
         self.origin_x = x_position
         self.origin_y = y_position
         self.range_limit = range_limit
         
         self.speed = speed
         self.damage = damage
-        self.bullet_type = bullet_type  # "normal", "cluster", "omega", "fracture", "fracture_mini", "mini", "hyper"
+        self.bullet_type = bullet_type  # "normal", "cluster", "omega", "fracture", "fracture_mini", "mini", "hyper", "stun", "slow", "laser"
+        
+        # Infinite pierce for laser beams, 5 pierce limit for Hyper
+        self.pierce_limit = 5 if bullet_type == "hyper" else (999999 if bullet_type == "laser" else 1)
         
         rad = math.radians(-angle)
         self.dx = math.cos(rad) * speed
         self.dy = math.sin(rad) * speed
         
-        # Hyper energy balls are scaled massively
-        size = 30 if bullet_type == "hyper" else (12 if bullet_type in ["cluster", "omega", "fracture"] else 6)
+        # Size profiles matched to ammo classifications
+        size = 30 if bullet_type in ["hyper", "laser"] else (14 if bullet_type in ["cluster", "omega", "fracture", "stun"] else 6)
         self.image = pygame.Surface((size, size), pygame.SRCALPHA)
         
-        # Color codes based on ammunition tier
         if bullet_type == "hyper":
-            color = (0, 191, 255)  # Bright Cyan laser ball
+            color = (0, 191, 255)
+        elif bullet_type == "laser":
+            color = (0, 255, 255)  # Cyan laser balls
+        elif bullet_type == "slow":
+            color = (124, 252, 0)  # Lime green slowing darts
+        elif bullet_type == "stun":
+            color = (30, 144, 255)  # Dark Blue stun ball
         elif bullet_type != "normal":
             color = (255, 165, 0)
         else:

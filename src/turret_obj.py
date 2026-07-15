@@ -35,7 +35,17 @@ def load_and_scale_asset(shape_type, size):
         ShapeTurret.scatter: "assets/Scatter.png",
         ShapeTurret.eight_way: "assets/Eight-Way.png",
         ShapeTurret.ultra: "assets/Ultra.png",
-        ShapeTurret.hyper: "assets/Hyper.png"
+        ShapeTurret.hyper: "assets/Hyper.png",
+        
+        # Scout Branch (Requirement added)
+        ShapeTurret.scout: "assets/Scout.png",
+        ShapeTurret.hitman: "assets/Hitman.png",
+        ShapeTurret.scoper: "assets/Scoper.png",
+        ShapeTurret.watcher: "assets/Watcher.png",
+        ShapeTurret.agent: "assets/Agent.png",
+        ShapeTurret.railgun: "assets/Railgun.png",
+        ShapeTurret.double_railgun: "assets/Double Railgun.png",
+        ShapeTurret.triple_railgun: "assets/Triple Railgun.png"
     }
     
     path = filename_map.get(shape_type)
@@ -50,9 +60,9 @@ def load_and_scale_asset(shape_type, size):
         raw_img = pygame.image.load(path).convert_alpha()
         orig_w, orig_h = raw_img.get_size()
         
-        # Make late-game superstructures visually larger
+        # Scale modifier makes End-game structures visually larger
         scale_modifier = 1.0
-        if shape_type in [ShapeTurret.omega, ShapeTurret.devourer, ShapeTurret.super_t, ShapeTurret.ultra, ShapeTurret.hyper]:
+        if shape_type in [ShapeTurret.omega, ShapeTurret.devourer, ShapeTurret.super_t, ShapeTurret.ultra, ShapeTurret.hyper, ShapeTurret.double_railgun, ShapeTurret.triple_railgun]:
             scale_modifier = 1.4
             
         new_h = int(size * 2 * scale_modifier)
@@ -104,7 +114,6 @@ def draw_shape(surface, shape_type, color, center, size, alpha=255):
 
 
 class turret(pygame.sprite.Sprite):
-    # Balanced default cooldown to 1/3 of a second (Requirement 2 updated)
     def __init__(self, x_position, y_position, shape_type=ShapeTurret.eater, cooldown=1.0 / 3.0, direction=0):
         super().__init__()
         self.x_position = x_position
@@ -118,6 +127,28 @@ class turret(pygame.sprite.Sprite):
         self.image = None  # Holds the rotated sprite
         self.cooldown_timer = 0.0
         self.fire_state = 0  # Tracks alternating barrel sequences
+        self.stun_timer = 0.0
+        
+        # Configure dynamic range factors (Requirement updated)
+        self.range_factor = 5
+        if shape_type == ShapeTurret.scout:
+            self.range_factor = 6
+            self.cooldown = 0.25
+        elif shape_type == ShapeTurret.hitman:
+            self.range_factor = 7
+            self.cooldown = 0.2
+        elif shape_type == ShapeTurret.scoper:
+            self.range_factor = 9
+            self.cooldown = 2.0
+        elif shape_type == ShapeTurret.watcher:
+            self.range_factor = 10
+            self.cooldown = 1.0
+        elif shape_type == ShapeTurret.agent:
+            self.range_factor = 16  # Half map (32 tiles wide / 2 = 16 tiles)
+            self.cooldown = 0.3
+        elif shape_type in [ShapeTurret.railgun, ShapeTurret.double_railgun, ShapeTurret.triple_railgun]:
+            self.range_factor = 5
+            self.cooldown = 5.0  # Slow nuke cooldown
 
     def placing(self, size):
         self.have_place = True
@@ -147,11 +178,11 @@ class turret(pygame.sprite.Sprite):
     def construct_enemy_list(self, enemies) -> list[enemy]:
         """
         Gathers targeted enemies inside range.
-        Expanded search limit to Settings.tile_size * 5 (Requirement updated).
+        Uses the unique range_factor initialized per subclass.
         """
         enemy_in_range = []
         for enemy_sprite in enemies:
-            if abs(enemy_sprite.x_position - self.x_position) < Settings.tile_size * 5 and abs(enemy_sprite.y_position - self.y_position) < Settings.tile_size * 5:
+            if abs(enemy_sprite.x_position - self.x_position) < Settings.tile_size * self.range_factor and abs(enemy_sprite.y_position - self.y_position) < Settings.tile_size * self.range_factor:
                 enemy_in_range.append(enemy_sprite)
         return enemy_in_range
         
@@ -241,7 +272,7 @@ class turret(pygame.sprite.Sprite):
                 new_bullet = bullet(self.x_position, self.y_position, burst_angle, speed=250, damage=15, bullet_type="cluster")
                 bullet_group.add(new_bullet)
 
-        # --- DOUBLE EVOLUTION LINE (Requirement updated) ---
+        # --- DOUBLE EVOLUTION LINE ---
         elif self.shape_type == ShapeTurret.double:
             # Alternating double barrel (1-2-1-2)
             if self.fire_state == 0:
@@ -254,7 +285,7 @@ class turret(pygame.sprite.Sprite):
                 self.fire_state = 0
 
         elif self.shape_type == ShapeTurret.triple:
-            # 1,2 - 3 - 1,2 - 3 pattern (Requirement updated)
+            # 1,2 - 3 - 1,2 - 3 pattern
             if self.fire_state == 0:
                 # Shoot side barrels 1 and 2 together
                 bullet1 = bullet(self.x_position + dx, self.y_position + dy, predicted_angle, speed=380, damage=10, bullet_type="normal")
@@ -268,13 +299,13 @@ class turret(pygame.sprite.Sprite):
                 self.fire_state = 0
 
         elif self.shape_type == ShapeTurret.tri_way:
-            # 3 directional spread fan (pointing forward, left-45, right-45) (Requirement updated)
+            # 3 directional spread fan (pointing forward, left-45, right-45)
             for offset in [-45, 0, 45]:
                 new_bullet = bullet(self.x_position, self.y_position, predicted_angle + offset, speed=350, damage=10, bullet_type="normal")
                 bullet_group.add(new_bullet)
 
         elif self.shape_type == ShapeTurret.orchestra:
-            # 5 tightly spaced parallel barrels firing a flat wall of bullets (Requirement updated)
+            # 5 tightly spaced parallel barrels firing a flat wall of bullets
             for offset_idx in range(-2, 3):
                 offset_dx = dx * offset_idx * 0.4
                 offset_dy = dy * offset_idx * 0.4
@@ -282,7 +313,7 @@ class turret(pygame.sprite.Sprite):
                 bullet_group.add(new_bullet)
 
         elif self.shape_type == ShapeTurret.super_t:
-            # 7 tightly spaced parallel barrels firing a flat wall of bullets (Requirement updated)
+            # 7 tightly spaced parallel barrels firing a flat wall of bullets
             for offset_idx in range(-3, 4):
                 offset_dx = dx * offset_idx * 0.35
                 offset_dy = dy * offset_idx * 0.35
@@ -290,14 +321,14 @@ class turret(pygame.sprite.Sprite):
                 bullet_group.add(new_bullet)
 
         elif self.shape_type == ShapeTurret.five_way:
-            # 5 directional spread fan spaced exactly 22.5 degrees (Requirement updated)
+            # 5 directional spread fan spaced exactly 22.5 degrees
             for i in range(-2, 3):
                 offset = i * 22.5
                 new_bullet = bullet(self.x_position, self.y_position, predicted_angle + offset, speed=320, damage=10, bullet_type="normal")
                 bullet_group.add(new_bullet)
 
         elif self.shape_type == ShapeTurret.six_way:
-            # Tri-Way front, Tri-Way back (Requirement updated)
+            # Tri-Way front, Tri-Way back
             for offset in [-45, 0, 45]:
                 # Front 3
                 b_front = bullet(self.x_position, self.y_position, predicted_angle + offset, speed=320, damage=12, bullet_type="normal")
@@ -313,22 +344,64 @@ class turret(pygame.sprite.Sprite):
                 bullet_group.add(new_bullet)
 
         elif self.shape_type == ShapeTurret.eight_way:
-            # Radial 8 directional firing ring spaced equally (Requirement updated)
+            # Radial 8 directional firing ring spaced equally
             for i in range(8):
                 burst_angle = predicted_angle + (i * 45)
                 new_bullet = bullet(self.x_position, self.y_position, burst_angle, speed=320, damage=15, bullet_type="normal")
                 bullet_group.add(new_bullet)
 
         elif self.shape_type == ShapeTurret.ultra:
-            # Radial 12 directional firing ring spaced equally (Requirement updated)
+            # Radial 12 directional firing ring spaced equally
             for i in range(12):
                 burst_angle = predicted_angle + (i * 30)
                 new_bullet = bullet(self.x_position, self.y_position, burst_angle, speed=350, damage=15, bullet_type="normal")
                 bullet_group.add(new_bullet)
 
         elif self.shape_type == ShapeTurret.hyper:
-            # 14 random direction bullets without stacking (Requirement updated)
+            # 14 random direction bullets without stacking
             angles = random.sample(range(0, 360, 5), 14)
             for angle in angles:
                 new_bullet = bullet(self.x_position, self.y_position, angle, speed=300, damage=50, bullet_type="hyper")
+                bullet_group.add(new_bullet)
+
+        # --- SCOUT EVOLUTION LINE (Requirement added) ---
+        elif self.shape_type == ShapeTurret.scout:
+            # High speed sniper bullet
+            new_bullet = bullet(self.x_position, self.y_position, predicted_angle, speed=600, damage=15, bullet_type="normal")
+            bullet_group.add(new_bullet)
+            
+        elif self.shape_type == ShapeTurret.hitman:
+            # High speed, higher damage bullet
+            new_bullet = bullet(self.x_position, self.y_position, predicted_angle, speed=700, damage=35, bullet_type="normal")
+            bullet_group.add(new_bullet)
+            
+        elif self.shape_type == ShapeTurret.scoper:
+            # Extremely slow, massive single target damage
+            new_bullet = bullet(self.x_position, self.y_position, predicted_angle, speed=800, damage=120, bullet_type="normal")
+            bullet_group.add(new_bullet)
+            
+        elif self.shape_type == ShapeTurret.watcher:
+            # Fires slow-down dart
+            new_bullet = bullet(self.x_position, self.y_position, predicted_angle, speed=500, damage=40, bullet_type="slow")
+            bullet_group.add(new_bullet)
+            
+        elif self.shape_type == ShapeTurret.agent:
+            # Extremely fast firing, half-map slowing darts
+            new_bullet = bullet(self.x_position, self.y_position, predicted_angle, speed=600, damage=30, bullet_type="slow")
+            bullet_group.add(new_bullet)
+            
+        elif self.shape_type == ShapeTurret.railgun:
+            # Massive piercing energy laser (Requirement updated)
+            new_bullet = bullet(self.x_position, self.y_position, predicted_angle, speed=500, damage=600, bullet_type="laser")
+            bullet_group.add(new_bullet)
+            
+        elif self.shape_type == ShapeTurret.double_railgun:
+            # 1 massive beam, double the damage (Requirement updated)
+            new_bullet = bullet(self.x_position, self.y_position, predicted_angle, speed=500, damage=1200, bullet_type="laser")
+            bullet_group.add(new_bullet)
+            
+        elif self.shape_type == ShapeTurret.triple_railgun:
+            # 3 massive piercing beams (Requirement updated)
+            for offset in [-10, 0, 10]:
+                new_bullet = bullet(self.x_position, self.y_position, predicted_angle + offset, speed=500, damage=600, bullet_type="laser")
                 bullet_group.add(new_bullet)

@@ -20,6 +20,16 @@ class ShapeTurret:
     ultra = "Ultra"
     hyper = "Hyper"
     
+    # Scout Branch (Requirement added)
+    scout = "Scout"
+    hitman = "Hitman"
+    scoper = "Scoper"
+    watcher = "Watcher"
+    agent = "Agent"
+    railgun = "Railgun"
+    double_railgun = "Double Railgun"
+    triple_railgun = "Triple Railgun"
+    
     farm_t1 = "farm_t1"
     farm_t2 = "farm_t2"
 
