@@ -20,7 +20,7 @@ class ShapeTurret:
     ultra = "Ultra"
     hyper = "Hyper"
     
-    # Scout Branch (Requirement added)
+    # Scout Branch
     scout = "Scout"
     hitman = "Hitman"
     scoper = "Scoper"
@@ -29,6 +29,17 @@ class ShapeTurret:
     railgun = "Railgun"
     double_railgun = "Double Railgun"
     triple_railgun = "Triple Railgun"
+
+    # Chaser Branch (Requirement added)
+    chaser = "Chaser"
+    banana_chaser = "Banana Chaser"
+    mega_chaser = "Mega Chaser"
+    gladiator = "Gladiator"
+    fortress = "Fortress"
+    triple_chaser = "Triple Chaser"
+    ultra_chaser = "Ultra Chaser"
+    espresso = "Espresso"
+    emperor = "Emperor"
     
     farm_t1 = "farm_t1"
     farm_t2 = "farm_t2"

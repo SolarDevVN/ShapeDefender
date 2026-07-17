@@ -56,7 +56,7 @@ enemy_types = {
     "dodecagon": {"speed": 30, "damage": 100, "hp": 3000, "bounty": 500}        
 }
 
-# 3-branch evolutionary pathways mapped out (Requirement updated)
+# Unified 4-branch evolutionary pathways mapped out
 EVOLUTION_TREE = {
     # --- Eater Tree ---
     ShapeTurret.eater: {
@@ -112,7 +112,7 @@ EVOLUTION_TREE = {
     ShapeTurret.scatter: {"next": [], "cost": None},
     ShapeTurret.hyper: {"next": [], "cost": None},
 
-    # --- Scout Tree (Requirement added) ---
+    # --- Scout Tree ---
     ShapeTurret.scout: {
         "next": [ShapeTurret.hitman],
         "cost": 300
@@ -138,14 +138,47 @@ EVOLUTION_TREE = {
         "next": [ShapeTurret.triple_railgun],
         "cost": 9600
     },
-    ShapeTurret.triple_railgun: {"next": [], "cost": None}
+    ShapeTurret.triple_railgun: {"next": [], "cost": None},
+
+    # --- Chaser Tree ---
+    ShapeTurret.chaser: {
+        "next": [ShapeTurret.banana_chaser, ShapeTurret.triple_chaser],
+        "cost": 300
+    },
+    ShapeTurret.banana_chaser: {
+        "next": [ShapeTurret.mega_chaser],
+        "cost": 600
+    },
+    ShapeTurret.mega_chaser: {
+        "next": [ShapeTurret.gladiator],
+        "cost": 1200
+    },
+    ShapeTurret.gladiator: {
+        "next": [ShapeTurret.fortress],
+        "cost": 2400
+    },
+    ShapeTurret.triple_chaser: {
+        "next": [ShapeTurret.ultra_chaser],
+        "cost": 600
+    },
+    ShapeTurret.ultra_chaser: {
+        "next": [ShapeTurret.espresso],
+        "cost": 1200
+    },
+    ShapeTurret.espresso: {
+        "next": [ShapeTurret.emperor],
+        "cost": 2400
+    },
+    ShapeTurret.fortress: {"next": [], "cost": None},
+    ShapeTurret.emperor: {"next": [], "cost": None}
 }
 
-# Base build shop prices (Eater / Double / Scout / Farms)
+# Base build shop prices (Double / Scout / Eater / Chaser / Farms)
 TURRET_PRICES = {
+    ShapeTurret.double: 40,
+    ShapeTurret.scout: 40,
     ShapeTurret.eater: 40,
-    ShapeTurret.double: 40,  
-    ShapeTurret.scout: 40,   # Unlocked Scout Base Class (Requirement updated)
+    ShapeTurret.chaser: 40,  
     ShapeTurret.farm_t1: 100,
     ShapeTurret.farm_t2: 250
 }
@@ -158,6 +191,7 @@ def enemy_randomizer(is_boss=False, is_miniboss=False):
     """
     Spawns wave-based mini-bosses or dodecagon raid bosses.
     Dynamically unlocks enemy classes based on wave progression.
+    Enforces a strict 5-star active on-screen threshold (Requirement updated).
     """
     if is_boss:
         attributes = enemy_types["dodecagon"]
@@ -171,7 +205,12 @@ def enemy_randomizer(is_boss=False, is_miniboss=False):
     if current_wave >= 3:
         pool.extend(["triangle", "pentagon", "hexagon"])
     if current_wave >= 5:
-        pool.extend(["diamond", "star"])
+        # Check current active Star count on screen (Requirement updated)
+        star_count = sum(1 for e in enemies_group if e.type == "star" and e.alive())
+        if star_count < 5:
+            pool.extend(["diamond", "star"])
+        else:
+            pool.append("diamond") # Skip star to prevent endless stun locks!
         
     enemy_type = random.choice(pool)
     attributes = enemy_types[enemy_type]
@@ -266,10 +305,10 @@ auto_skip_timer = 0.0
 # Tracks current selected turret to evolve
 selected_turret = None
 
-# Game state handlers (Requirement 2 updated)
+# Game state handlers
 game_state = "playing"  # Can be: "playing", "gameover", "index"
 
-# UI Font Render Cache variables (Requirement 1 updated)
+# UI Font Render Cache variables
 last_money = -1
 last_wave = -1
 last_fortress_hp = -1
@@ -285,13 +324,17 @@ def queue_wave(wave_num):
     Assembles wave assets and packages them into the active spawn queue.
     """
     size = 5 + (wave_num * 2)
-    is_boss_wave = (wave_num % 10 == 0)
+    
+    # Raid boss only spawns from Wave 20 onwards, every 10 waves (Requirement updated)
+    is_boss_wave = (wave_num >= 20 and wave_num % 10 == 0)
+    # Mini-boss only spawns from Wave 10 onwards, at the end of every wave (Requirement updated)
+    is_miniboss_wave = (wave_num >= 10)
     
     for i in range(size):
         is_last = (i == size - 1)
         if is_boss_wave and is_last:
             speed, damage, hp, spawning_type = enemy_randomizer(is_boss=True)
-        elif is_last:
+        elif is_miniboss_wave and is_last:
             speed, damage, hp, spawning_type = enemy_randomizer(is_miniboss=True)
         else:
             speed, damage, hp, spawning_type = enemy_randomizer()
@@ -333,37 +376,35 @@ while running:
                 running = False
         continue
 
-    # --- INTERACTIVE INDEX GUIDE MENU OVERLAY (Requirement added) ---
+    # --- INTERACTIVE INDEX GUIDE MENU OVERLAY ---
     elif game_state == "index":
         screen.fill((15, 15, 15))
         title_lbl = ui_font.render("=== shape evolution index ===", True, (255, 215, 0))
         screen.blit(title_lbl, (SCREEN_WIDTH // 2 - 120, 20))
         
-        # Simple text columns representing the branches
         col1_y = 70
         screen.blit(ui_font.render("[ EATER BRANCH ]", True, (0, 191, 255)), (50, col1_y))
-        screen.blit(ui_font.render("Eater -> Devourer ($300)", True, (200, 200, 200)), (50, col1_y + 30))
-        screen.blit(ui_font.render("Devourer -> Cluster ($600)", True, (200, 200, 200)), (50, col1_y + 60))
-        screen.blit(ui_font.render("Cluster -> Omega/Fracture/Triple ($1200)", True, (200, 200, 200)), (50, col1_y + 90))
+        screen.blit(ui_font.render("Eater -> Devourer ($300) -> Cluster ($600) -> Omega/Fracture/Triple ($1200)", True, (200, 200, 200)), (50, col1_y + 30))
         
-        screen.blit(ui_font.render("[ DOUBLE BRANCH ]", True, (255, 165, 0)), (50, col1_y + 140))
-        screen.blit(ui_font.render("Double -> Triple / Tri-Way ($300)", True, (200, 200, 200)), (50, col1_y + 170))
-        screen.blit(ui_font.render("Triple -> Orchestra ($600) -> Super ($1200)", True, (200, 200, 200)), (50, col1_y + 200))
-        screen.blit(ui_font.render("Tri-Way -> Five-Way / Six-Way ($600)", True, (200, 200, 200)), (50, col1_y + 230))
-        screen.blit(ui_font.render("Five-Way -> Scatter ($1200)", True, (200, 200, 200)), (50, col1_y + 260))
-        screen.blit(ui_font.render("Six-Way -> Eight-Way ($1200) -> Ultra -> Hyper", True, (200, 200, 200)), (50, col1_y + 290))
+        screen.blit(ui_font.render("[ DOUBLE BRANCH ]", True, (255, 165, 0)), (50, col1_y + 90))
+        screen.blit(ui_font.render("Double -> Triple / Tri-Way ($300)", True, (200, 200, 200)), (50, col1_y + 120))
+        screen.blit(ui_font.render("Triple -> Orchestra ($600) -> Super ($1200)", True, (200, 200, 200)), (50, col1_y + 150))
+        screen.blit(ui_font.render("Tri-Way -> Five-Way / Six-Way ($600) | Five-Way -> Scatter ($1200)", True, (200, 200, 200)), (50, col1_y + 180))
+        screen.blit(ui_font.render("Six-Way -> Eight-Way ($1200) -> Ultra ($2400) -> Hyper ($30000)", True, (200, 200, 200)), (50, col1_y + 210))
         
-        screen.blit(ui_font.render("[ SCOUT BRANCH ]", True, (154, 205, 50)), (50, col1_y + 340))
-        screen.blit(ui_font.render("Scout -> Hitman ($300) -> Scoper ($600)", True, (200, 200, 200)), (50, col1_y + 370))
-        screen.blit(ui_font.render("Scoper -> Watcher / Railgun ($1200)", True, (200, 200, 200)), (50, col1_y + 400))
-        screen.blit(ui_font.render("Watcher -> Agent ($2400 - Half-map range!)", True, (200, 200, 200)), (50, col1_y + 430))
-        screen.blit(ui_font.render("Railgun -> Double Railgun -> Triple Railgun", True, (200, 200, 200)), (50, col1_y + 460))
+        screen.blit(ui_font.render("[ SCOUT BRANCH ]", True, (154, 205, 50)), (50, col1_y + 270))
+        screen.blit(ui_font.render("Scout -> Hitman ($300) -> Scoper ($600) -> Watcher / Railgun ($1200)", True, (200, 200, 200)), (50, col1_y + 300))
+        screen.blit(ui_font.render("Watcher -> Agent ($2400) | Railgun -> Double Railgun ($2400) -> Triple Railgun ($9600)", True, (200, 200, 200)), (50, col1_y + 330))
+        
+        screen.blit(ui_font.render("[ CHASER BRANCH ]", True, (255, 105, 180)), (50, col1_y + 390))
+        screen.blit(ui_font.render("Chaser -> Banana Chaser / Triple Chaser ($300)", True, (200, 200, 200)), (50, col1_y + 420))
+        screen.blit(ui_font.render("Banana Chaser -> Mega Chaser ($600) -> Gladiator ($1200) -> Fortress ($2400)", True, (200, 200, 200)), (50, col1_y + 450))
+        screen.blit(ui_font.render("Triple Chaser -> Ultra Chaser ($600) -> Espresso ($1200) -> Emperor ($2400)", True, (200, 200, 200)), (50, col1_y + 480))
         
         esc_lbl = ui_font.render("Press 'I' to exit index guide", True, (255, 50, 50))
         screen.blit(esc_lbl, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT - 40))
         pygame.display.flip()
         
-        # Halt normal updates, wait for toggle event
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -388,7 +429,7 @@ while running:
                         cost = TURRET_PRICES[selected_shape]
                         is_placing_farm = selected_shape in [ShapeTurret.farm_t1, ShapeTurret.farm_t2]
                         
-                        # Restrict placement if trying to exceed maximum turret limits
+                        # Restrict placement if trying to exceed maximum turret limits (Requirement updated)
                         if not is_placing_farm and len(turrets_group) >= MAX_TURRETS:
                             continue
                         if is_placing_farm and len(farms_group) >= MAX_FARMS:
@@ -427,20 +468,23 @@ while running:
             if event.key == pygame.K_ESCAPE:
                 running = False
             
-            # Index Guide toggling (Requirement added)
+            # Index Guide toggling
             elif event.key == pygame.K_i:
                 game_state = "index"
             
-            # Key bindings targeting base shop placements (Double, Eater, Scout, Farms)
+            # Key bindings targeting base shop placements (Double, Scout, Eater, Chaser, Farms)
             elif event.key == pygame.K_1:
                 placing_mode = True
                 selected_shape = ShapeTurret.double  
             elif event.key == pygame.K_2:
                 placing_mode = True
-                selected_shape = ShapeTurret.scout  # Buy Scout (Requirement added)
+                selected_shape = ShapeTurret.scout  
             elif event.key == pygame.K_3:
                 placing_mode = True
                 selected_shape = ShapeTurret.eater
+            elif event.key == pygame.K_4:
+                placing_mode = True
+                selected_shape = ShapeTurret.chaser  
             elif event.key == pygame.K_5:
                 placing_mode = True
                 selected_shape = ShapeTurret.farm_t1
@@ -504,7 +548,18 @@ while running:
                         elif current_type == ShapeTurret.scoper:
                             if event.key == pygame.K_7: next_type = ShapeTurret.watcher
                             elif event.key == pygame.K_8: next_type = ShapeTurret.railgun
-                        elif len(node["next"]) == 1 and event.key == pygame.K_u:
+                        elif current_type == ShapeTurret.chaser:
+                            if event.key == pygame.K_7: next_type = ShapeTurret.banana_chaser
+                            elif event.key == pygame.K_8: next_type = ShapeTurret.triple_chaser
+                        elif current_type in [
+                            ShapeTurret.eater, ShapeTurret.devourer, 
+                            ShapeTurret.scout, ShapeTurret.hitman,  # Added Scout and Hitman (Requirement updated)
+                            ShapeTurret.banana_chaser, ShapeTurret.mega_chaser, ShapeTurret.gladiator, 
+                            ShapeTurret.triple_chaser, ShapeTurret.ultra_chaser, ShapeTurret.espresso, 
+                            ShapeTurret.triple, ShapeTurret.orchestra, ShapeTurret.five_way, 
+                            ShapeTurret.six_way, ShapeTurret.eight_way, ShapeTurret.ultra, 
+                            ShapeTurret.watcher, ShapeTurret.railgun, ShapeTurret.double_railgun
+                        ] and event.key == pygame.K_u:
                             next_type = node["next"][0]
                             
                         # Perform the actual evolution update if a type is set
@@ -572,7 +627,7 @@ while running:
                 nearest_t = None
                 min_dist = 999999
                 for t in turrets_group:
-                    dist = math.hypot(t.x_position - current_enemy.x_position, t.y_position - current_enemy.y_position)
+                    dist = math.hypot(t.x_position - current_enemy.x_position, current_enemy.y_position - current_enemy.y_position)
                     if dist < min_dist:
                         min_dist = dist
                         nearest_t = t
@@ -587,9 +642,9 @@ while running:
             if fortress_hp <= 0:
                 game_state = "gameover"
 
-    # Move bullets and pass group reference
+    # Move bullets and pass group references for robust homing tracking (Silent bug fixed!) (Requirement updated)
     for current_bullet in list(bullets_group):
-        current_bullet.move(delta_time, bullets_group)
+        current_bullet.move(delta_time, bullets_group, enemies_group)
         if current_bullet.x_position < 0 or current_bullet.x_position > SCREEN_WIDTH or current_bullet.y_position < 0 or current_bullet.y_position > SCREEN_HEIGHT:
             current_bullet.kill()
 
@@ -622,7 +677,7 @@ while running:
                 current_turret.shoot(bullets_group, predicted_angle)
                 current_turret.cooldown_timer = current_turret.cooldown
 
-    # Collision updates utilizing Group methods (Requirement 3 updated)
+    # Collision updates utilizing Group methods
     for current_bullet in list(bullets_group):
         # Process Stun Projectile hits against Turrets
         if current_bullet.bullet_type == "stun":
@@ -640,7 +695,6 @@ while running:
             dist_squared = dx * dx + dy * dy
             
             if dist_squared < 400:  # 20 * 20 = 400 (collision radius squared)
-                # Apply high-velocity slow-down triggers if hit by a sniper dart (Requirement added)
                 if current_bullet.bullet_type == "slow":
                     current_enemy.slow_timer = 2.0
                 
@@ -648,6 +702,7 @@ while running:
                 
                 # Triggers explode mini-bullets if this is an evolution class projectile (unless it is piercing Hyper/Laser)
                 if current_bullet.bullet_type in ["hyper", "laser"]:
+                    current_bullet.pixel_limit = 5 if current_bullet.bullet_type == "hyper" else 999999
                     current_bullet.pierce_limit -= 1  
                     if current_bullet.pierce_limit <= 0:
                         current_bullet.kill()
@@ -722,13 +777,11 @@ while running:
     skip_lbl = ui_font.render("Press 'N' to Skip Wave (High Risk!)", True, (255, 215, 0))
     screen.blit(skip_lbl, (SCREEN_WIDTH - 320, 10))
     
-    # Render Guide Menu Index prompt (Requirement added)
     index_lbl = ui_font.render("Press 'I' for Evolution Index Guide", True, (255, 255, 255))
     screen.blit(index_lbl, (SCREEN_WIDTH - 320, 40))
     
     # Render thin range indicator around selected turrets
     if selected_turret is not None and selected_turret.alive():
-        # Faint cyan circle rendering over the grid
         pygame.draw.circle(screen, (0, 255, 255), selected_turret.rect.center, Settings.tile_size * selected_turret.range_factor, 1)
 
     # 5-second pause intermission visual warning countdown
@@ -764,11 +817,9 @@ while running:
         pygame.draw.rect(screen, (30, 30, 30), (0, 500, SCREEN_WIDTH, 100))
         pygame.draw.rect(screen, (100, 100, 100), (0, 500, SCREEN_WIDTH, 100), 2)
         
-        # Render a red deletion warning key directly inside the dashboard
         del_lbl = ui_font.render("Press '0' to Delete Structure", True, (255, 100, 100))
         screen.blit(del_lbl, (SCREEN_WIDTH - 280, 560))
         
-        # Render a yellow stun warning if the structure is inactive
         if selected_turret.stun_timer > 0:
             name_lbl = ui_font.render(f"Selected: {current_type} (STUNNED - {int(selected_turret.stun_timer + 1)}s)", True, (255, 165, 0))
         else:
@@ -858,6 +909,22 @@ while running:
                 
                 if img_wa: screen.blit(img_wa, (SCREEN_WIDTH - 450, 515))
                 if img_ra: screen.blit(img_ra, (SCREEN_WIDTH - 370, 515))
+
+            elif current_type == ShapeTurret.chaser:
+                branch_lbl = ui_font.render(f"Branches: Cost: ${evolve_cost}", True, (255, 255, 255))
+                screen.blit(branch_lbl, (20, 540))
+                
+                lbl_banana = ui_font.render("[7] Banana", True, (0, 255, 0) if money >= evolve_cost else (255, 50, 50))
+                lbl_triple_c = ui_font.render("[8] Triple Chaser", True, (0, 255, 0) if money >= evolve_cost else (255, 50, 50))
+                
+                screen.blit(lbl_banana, (20, 570))
+                screen.blit(lbl_triple_c, (150, 570))
+                
+                img_ba = load_and_scale_asset(ShapeTurret.banana_chaser, 15)
+                img_tc = load_and_scale_asset(ShapeTurret.triple_chaser, 15)
+                
+                if img_ba: screen.blit(img_ba, (SCREEN_WIDTH - 450, 515))
+                if img_tc: screen.blit(img_tc, (SCREEN_WIDTH - 370, 515))
         else:
             max_lbl = ui_font.render("Evolution Path: MAX TIER REACHED!", True, (0, 255, 0))
             screen.blit(max_lbl, (20, 550))
